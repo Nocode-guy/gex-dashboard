@@ -212,6 +212,26 @@ body {
     white-space: nowrap;
 }
 
+/* Logout Button */
+.btn-logout {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-logout:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: var(--accent-red);
+    color: var(--accent-red);
+}
+
 /* Symbol Tabs */
 .symbol-tabs {
     height: var(--tabs-height);

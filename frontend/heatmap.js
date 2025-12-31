@@ -3086,6 +3086,25 @@ function setupEventHandlers() {
             loadSymbol(symbols[newIndex].symbol);
         }
     });
+
+    // =========================================================================
+    // LOGOUT BUTTON
+    // =========================================================================
+    const btnLogout = document.getElementById('btnLogout');
+    if (btnLogout) {
+        btnLogout.addEventListener('click', async () => {
+            try {
+                await fetch(`${API_BASE}/auth/logout`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+            } catch (err) {
+                console.log('Logout error:', err);
+            }
+            // Redirect to login page
+            window.location.href = '/login';
+        });
+    }
 }
 
 // =============================================================================

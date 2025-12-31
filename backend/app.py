@@ -6,6 +6,8 @@ FastAPI server providing GEX data for the web dashboard and NinjaTrader indicato
 import os
 import sys
 import asyncio
+import hashlib
+import secrets
 
 # Fix Windows console encoding issues
 if sys.platform == 'win32':
@@ -22,11 +24,20 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Cookie, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 import uvicorn
+
+# Session signing
+try:
+    from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+    SESSIONS_AVAILABLE = True
+except ImportError:
+    SESSIONS_AVAILABLE = False
+    print("[WARNING] itsdangerous not installed - authentication disabled")
 
 from zoneinfo import ZoneInfo
 
@@ -36,6 +47,61 @@ from config import (
     MIN_OPEN_INTEREST, MIN_GEX_VALUE
 )
 from gex_calculator import GEXCalculator, GEXResult
+
+
+# =============================================================================
+# AUTHENTICATION CONFIG
+# =============================================================================
+# Password: Set via environment variable or use default
+# To change: set GEX_PASSWORD environment variable
+AUTH_PASSWORD = os.environ.get("GEX_PASSWORD", "gex2024")
+
+# Secret key for signing session cookies
+# In production, set GEX_SECRET_KEY environment variable
+SECRET_KEY = os.environ.get("GEX_SECRET_KEY", secrets.token_hex(32))
+
+# Session duration (24 hours)
+SESSION_MAX_AGE = 60 * 60 * 24
+
+# Enable/disable authentication (disable for local development if needed)
+AUTH_ENABLED = os.environ.get("GEX_AUTH_ENABLED", "true").lower() == "true"
+
+
+def hash_password(password: str) -> str:
+    """Hash password using SHA-256."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def verify_password(password: str, expected: str) -> bool:
+    """Verify password against expected value."""
+    return hash_password(password) == hash_password(expected)
+
+
+# Session serializer
+if SESSIONS_AVAILABLE:
+    session_serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+
+def create_session_token(data: dict) -> str:
+    """Create a signed session token."""
+    if not SESSIONS_AVAILABLE:
+        return ""
+    return session_serializer.dumps(data)
+
+
+def verify_session_token(token: str) -> Optional[dict]:
+    """Verify and decode a session token."""
+    if not SESSIONS_AVAILABLE or not token:
+        return None
+    try:
+        return session_serializer.loads(token, max_age=SESSION_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+class LoginRequest(BaseModel):
+    """Login request body."""
+    password: str
 
 # Eastern timezone for market hours
 ET = ZoneInfo("America/New_York")
@@ -1365,6 +1431,77 @@ async def get_quiver_alerts(
 
 
 # =============================================================================
+# AUTHENTICATION ENDPOINTS
+# =============================================================================
+@app.post("/auth/login")
+async def login(request: LoginRequest, response: Response):
+    """
+    Login with password.
+    Sets a session cookie on success.
+    """
+    if not AUTH_ENABLED:
+        # Auth disabled - always succeed
+        return {"status": "ok", "message": "Authentication disabled"}
+
+    if not verify_password(request.password, AUTH_PASSWORD):
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    # Create session token
+    session_data = {
+        "authenticated": True,
+        "login_time": datetime.now().isoformat()
+    }
+    token = create_session_token(session_data)
+
+    # Set cookie
+    response.set_cookie(
+        key="gex_session",
+        value=token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=False  # Set to True in production with HTTPS
+    )
+
+    return {"status": "ok", "message": "Login successful"}
+
+
+@app.post("/auth/logout")
+async def logout(response: Response):
+    """
+    Logout - clears the session cookie.
+    """
+    response.delete_cookie("gex_session")
+    return {"status": "ok", "message": "Logged out"}
+
+
+@app.get("/auth/check")
+async def check_auth(gex_session: Optional[str] = Cookie(None)):
+    """
+    Check if user is authenticated.
+    Returns auth status without requiring login.
+    """
+    if not AUTH_ENABLED:
+        return {"authenticated": True, "auth_required": False}
+
+    session = verify_session_token(gex_session) if gex_session else None
+    return {
+        "authenticated": session is not None,
+        "auth_required": AUTH_ENABLED
+    }
+
+
+def is_authenticated(gex_session: Optional[str]) -> bool:
+    """Check if request has valid session."""
+    if not AUTH_ENABLED:
+        return True
+    if not gex_session:
+        return False
+    session = verify_session_token(gex_session)
+    return session is not None and session.get("authenticated", False)
+
+
+# =============================================================================
 # STATIC FILES (Frontend)
 # =============================================================================
 # Serve frontend files from ../frontend directory
@@ -1375,11 +1512,23 @@ if os.path.exists(FRONTEND_DIR):
     # Serve static files (js, css, images)
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
-    # Serve index.html at root (after API routes)
+    @app.get("/login")
+    async def serve_login():
+        """Serve the login page."""
+        return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))
+
     @app.get("/app", response_class=FileResponse)
-    @app.get("/app/{path:path}", response_class=FileResponse)
-    async def serve_frontend(path: str = ""):
-        """Serve the frontend application."""
+    @app.get("/app/{path:path}")
+    async def serve_frontend(
+        request: Request,
+        path: str = "",
+        gex_session: Optional[str] = Cookie(None)
+    ):
+        """Serve the frontend application (protected by authentication)."""
+        # Check authentication
+        if AUTH_ENABLED and not is_authenticated(gex_session):
+            return RedirectResponse(url="/login", status_code=302)
+
         # Try to serve the requested file
         file_path = os.path.join(FRONTEND_DIR, path) if path else os.path.join(FRONTEND_DIR, "index.html")
         if os.path.isfile(file_path):
@@ -1388,6 +1537,8 @@ if os.path.exists(FRONTEND_DIR):
         return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
     print(f"[OK] Frontend mounted at /app from {FRONTEND_DIR}")
+    if AUTH_ENABLED:
+        print(f"[OK] Authentication enabled - login at /login")
 
 
 # =============================================================================

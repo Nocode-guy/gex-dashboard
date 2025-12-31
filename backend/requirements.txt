@@ -4,6 +4,10 @@
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 
+# Session management and security
+itsdangerous>=2.1.0
+python-multipart>=0.0.6
+
 # HTTP client for Tradier API
 httpx>=0.26.0
 
