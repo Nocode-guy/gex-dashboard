@@ -3542,3 +3542,281 @@ body.trinity-mode .trinity-container {
         grid-template-columns: 1fr 1fr;
     }
 }
+
+/* =============================================================================
+   MOBILE RESPONSIVE STYLES
+   ============================================================================= */
+
+@media (max-width: 1024px) {
+    :root {
+        --sidebar-width: 220px;
+    }
+
+    .main-content {
+        grid-template-columns: 1fr !important;
+    }
+
+    .heatmap-section {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Header */
+    .header {
+        padding: 8px 12px;
+        flex-wrap: wrap;
+        height: auto;
+        gap: 8px;
+    }
+
+    .header-left {
+        flex: 1;
+        min-width: 100%;
+        justify-content: space-between;
+    }
+
+    .header-center {
+        flex: 1;
+        min-width: 100%;
+        order: 3;
+    }
+
+    .header-right {
+        flex: 1;
+        min-width: 100%;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .brand {
+        font-size: 16px;
+    }
+
+    .clock {
+        font-size: 12px;
+    }
+
+    /* Sidebar */
+    .sidebar {
+        position: fixed;
+        left: -280px;
+        top: 0;
+        bottom: 0;
+        width: 280px;
+        z-index: 1000;
+        transition: left 0.3s ease;
+        padding-top: 60px;
+    }
+
+    .sidebar.open {
+        left: 0;
+    }
+
+    /* Main content full width */
+    .main-content {
+        margin-left: 0 !important;
+        padding: 8px;
+    }
+
+    /* Regime bar */
+    .regime-bar {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px;
+    }
+
+    .regime-info {
+        flex: 1;
+        min-width: 100%;
+        justify-content: center;
+    }
+
+    .pressure-gauge {
+        flex: 1;
+        min-width: 100%;
+        justify-content: center;
+    }
+
+    .delta-info {
+        flex: 1;
+        min-width: 100%;
+        justify-content: center;
+    }
+
+    /* Stats grid */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px;
+    }
+
+    .stat-card {
+        padding: 10px;
+    }
+
+    .stat-value {
+        font-size: 16px;
+    }
+
+    /* Tabs */
+    .view-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .view-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .tab-btn {
+        padding: 8px 12px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    /* Heatmap */
+    .heatmap-container {
+        overflow-x: auto;
+    }
+
+    .heatmap-table {
+        min-width: 600px;
+    }
+
+    .heatmap-cell {
+        padding: 4px 2px;
+        font-size: 10px;
+        min-width: 50px;
+    }
+
+    /* Chart section */
+    .chart-section {
+        height: 250px;
+    }
+
+    /* Strike detail panel */
+    .strike-detail-panel {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        top: auto;
+        max-height: 50vh;
+        border-radius: 16px 16px 0 0;
+        z-index: 999;
+    }
+
+    /* Footer */
+    .footer {
+        flex-wrap: wrap;
+        padding: 8px;
+        gap: 8px;
+    }
+
+    .footer-section {
+        min-width: 100%;
+        justify-content: center;
+    }
+
+    /* Refresh controls */
+    .refresh-controls {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .interval-btn {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+
+    /* Symbol input */
+    .symbol-input-container {
+        width: 100%;
+    }
+
+    #symbolInput {
+        width: 100%;
+    }
+
+    /* Heatmap controls */
+    .heatmap-controls {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .heatmap-control-btn {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Extra small screens */
+    .brand {
+        font-size: 14px;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .stat-card {
+        padding: 8px;
+    }
+
+    .stat-label {
+        font-size: 10px;
+    }
+
+    .stat-value {
+        font-size: 14px;
+    }
+
+    .heatmap-cell {
+        font-size: 9px;
+        min-width: 40px;
+    }
+
+    .regime-badge,
+    .reliability-badge,
+    .event-badge,
+    .market-status-badge {
+        font-size: 9px;
+        padding: 2px 6px;
+    }
+}
+
+/* Mobile menu toggle button */
+.mobile-menu-toggle {
+    display: none;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 18px;
+}
+
+@media (max-width: 768px) {
+    .mobile-menu-toggle {
+        display: block;
+    }
+}
+
+/* Overlay for mobile sidebar */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+
+.sidebar-overlay.active {
+    display: block;
+}
