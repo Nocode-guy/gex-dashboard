@@ -65,6 +65,9 @@ except ImportError:
 _options_client = None
 _options_client_name = None
 
+# Check if any data provider is available
+DATA_PROVIDER_AVAILABLE = TRADIER_AVAILABLE or MARKETDATA_AVAILABLE
+
 def get_options_client():
     """Get the active options data client based on config."""
     global _options_client, _options_client_name
@@ -387,8 +390,8 @@ class RefreshManager:
     async def refresh_symbol(self, symbol: str):
         """Refresh GEX data for a single symbol."""
         try:
-            if not MARKETDATA_AVAILABLE:
-                print(f"[ERROR] MarketData.app not available for {symbol}")
+            if not DATA_PROVIDER_AVAILABLE:
+                print(f"[ERROR] No data provider available for {symbol}")
                 return
 
             client = get_options_client()
@@ -738,7 +741,7 @@ async def get_candles(
     """
     symbol = symbol.upper()
 
-    if not MARKETDATA_AVAILABLE:
+    if not DATA_PROVIDER_AVAILABLE:
         raise HTTPException(status_code=503, detail="Market data not available")
 
     client = get_options_client()
@@ -856,7 +859,7 @@ async def add_symbol(symbol: str):
 
     # Quick validation - just check if we can get a quote
     try:
-        if not MARKETDATA_AVAILABLE:
+        if not DATA_PROVIDER_AVAILABLE:
             raise HTTPException(status_code=503, detail="MarketData.app client not available")
 
         client = get_options_client()
@@ -947,7 +950,7 @@ async def search_symbols(q: str = Query(..., min_length=1, description="Search q
     Search for symbols by name or ticker.
     Returns matching stocks/ETFs with their symbols.
     """
-    if not MARKETDATA_AVAILABLE:
+    if not DATA_PROVIDER_AVAILABLE:
         return {"query": q, "results": [{"symbol": q.upper(), "name": q.upper(), "type": "UNKNOWN"}]}
 
     client = get_options_client()
@@ -1395,10 +1398,10 @@ if __name__ == "__main__":
     print("GEX Dashboard API - MarketData.app (Real Greeks from OPRA)")
     print("=" * 60)
 
-    if MARKETDATA_AVAILABLE:
-        print("[OK] MarketData.app client loaded")
+    if DATA_PROVIDER_AVAILABLE:
+        print("[OK] Data provider available")
     else:
-        print("[ERROR] MarketData.app client not available!")
+        print("[ERROR] No data provider available!")
 
     # Run server (PORT from environment for Render, default 8000)
     port = int(os.environ.get("PORT", 8000))
