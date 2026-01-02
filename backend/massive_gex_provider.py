@@ -78,49 +78,8 @@ class MassiveGEXProvider:
 
         client = await self._get_client()
 
-        # Handle index symbols (SPX, NDX, RUT, VIX, etc.)
-        index_symbols = {"SPX", "NDX", "RUT", "VIX", "DJX", "OEX"}
-        is_index = symbol in index_symbols
-
-        try:
-            if is_index:
-                # Get index value from indices endpoint
-                index_ticker = f"I:{symbol}"
-                url = f"{self.base_url}/v2/aggs/ticker/{index_ticker}/prev"
-                response = await client.get(url, params={"apiKey": self.api_key})
-                response.raise_for_status()
-                data = response.json()
-
-                results = data.get("results", [])
-                if results:
-                    price = results[0].get("c", 0)  # closing price
-                    if price > 0:
-                        self._spot_cache[symbol] = (price, datetime.now())
-                        return price
-            else:
-                # Get stock snapshot
-                url = f"{self.base_url}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-                response = await client.get(url, params={"apiKey": self.api_key})
-                response.raise_for_status()
-                data = response.json()
-
-                ticker = data.get("ticker", {})
-                # Try different price fields
-                price = (
-                    ticker.get("lastTrade", {}).get("p", 0) or
-                    ticker.get("prevDay", {}).get("c", 0) or
-                    ticker.get("min", {}).get("c", 0) or
-                    0
-                )
-
-                if price > 0:
-                    self._spot_cache[symbol] = (price, datetime.now())
-                    return price
-
-        except Exception as e:
-            print(f"[Massive] Error getting spot price for {symbol}: {e}")
-
-        # Fallback: get from options snapshot
+        # PRIMARY: Get price from options snapshot (works for all symbols including indices)
+        # The free Polygon tier supports options snapshots but not stock/index snapshots
         try:
             url = f"{self.base_url}/v3/snapshot/options/{symbol}"
             response = await client.get(url, params={"apiKey": self.api_key, "limit": 1})
@@ -131,10 +90,33 @@ class MassiveGEXProvider:
                 price = data["results"][0].get("underlying_asset", {}).get("price", 0)
                 if price > 0:
                     self._spot_cache[symbol] = (price, datetime.now())
+                    print(f"[Massive] Got spot price for {symbol}: ${price:.2f}")
                     return price
 
         except Exception as e:
-            print(f"[Massive] Error getting spot from options: {e}")
+            print(f"[Massive] Error getting spot from options for {symbol}: {e}")
+
+        # FALLBACK: Try stock snapshot endpoint (may fail on free tier)
+        try:
+            url = f"{self.base_url}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
+            response = await client.get(url, params={"apiKey": self.api_key})
+            response.raise_for_status()
+            data = response.json()
+
+            ticker = data.get("ticker", {})
+            price = (
+                ticker.get("lastTrade", {}).get("p", 0) or
+                ticker.get("prevDay", {}).get("c", 0) or
+                ticker.get("min", {}).get("c", 0) or
+                0
+            )
+
+            if price > 0:
+                self._spot_cache[symbol] = (price, datetime.now())
+                return price
+
+        except Exception as e:
+            pass  # Expected to fail on free tier, no need to log
 
         return 0
 
