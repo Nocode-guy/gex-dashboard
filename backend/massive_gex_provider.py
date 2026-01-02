@@ -50,9 +50,9 @@ class MassiveGEXProvider:
         self.base_url = MASSIVE_BASE_URL
         self._client: Optional[httpx.AsyncClient] = None
 
-        # Cache for spot prices
+        # Cache for spot prices (15s for more real-time updates during market hours)
         self._spot_cache: Dict[str, Tuple[float, datetime]] = {}
-        self._spot_cache_ttl = 60  # seconds
+        self._spot_cache_ttl = 15  # seconds
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
