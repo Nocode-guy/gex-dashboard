@@ -267,7 +267,9 @@ class MassiveClient:
     async def get_options_snapshot(
         self,
         symbol: str,
-        limit: int = 250
+        limit: int = 250,
+        min_strike: float = None,
+        max_strike: float = None
     ) -> List[dict]:
         """
         Fetch options snapshot with volume, OI, and last trade data.
@@ -275,6 +277,8 @@ class MassiveClient:
         Args:
             symbol: Underlying symbol (e.g., SPY)
             limit: Max contracts to return
+            min_strike: Minimum strike price filter
+            max_strike: Maximum strike price filter
         """
         client = await self._get_client()
         symbol = symbol.upper()
@@ -287,6 +291,12 @@ class MassiveClient:
             "apiKey": self.api_key,
             "limit": limit
         }
+
+        # Add strike filters if provided (critical for getting both calls AND puts)
+        if min_strike is not None:
+            params["strike_price.gte"] = min_strike
+        if max_strike is not None:
+            params["strike_price.lte"] = max_strike
 
         url = f"{self.base_url}/v3/snapshot/options/{api_symbol}"
 
@@ -336,15 +346,17 @@ class MassiveClient:
 
         now = datetime.utcnow()
 
-        # Fetch options snapshot
+        # Calculate strike range for API filtering
+        min_strike = spot_price - strike_range if spot_price else None
+        max_strike = spot_price + strike_range if spot_price else None
+
+        # Fetch options snapshot with strike filter (to get both calls AND puts)
         options = await self.get_options_snapshot(
             symbol=symbol,
-            limit=250
+            limit=250,
+            min_strike=min_strike,
+            max_strike=max_strike
         )
-
-        # Filter to strikes around spot price
-        min_strike = spot_price - strike_range if spot_price else 0
-        max_strike = spot_price + strike_range if spot_price else float('inf')
 
         # Build summary
         summary = FlowSummary(
@@ -362,9 +374,7 @@ class MassiveClient:
                 contract_type = details.get("contract_type", "").lower()
                 strike = details.get("strike_price", 0)
 
-                # Filter to strikes around spot price
-                if spot_price and (strike < min_strike or strike > max_strike):
-                    continue
+                # Strike filtering is now done in the API call
 
                 volume = day.get("volume", 0) or 0
                 open_interest = opt.get("open_interest", 0) or 0
