@@ -326,7 +326,12 @@ async function fetchFlowData(symbol) {
     }
 
     try {
-        const data = await fetchAPI(`/flow/${symbol}?strike_range=20`);
+        // Calculate strike range based on spot price (~3% of price, min 20, max 200)
+        // This ensures SPX (6800) gets ~200 range while SPY (680) gets ~20
+        const spotPrice = currentGEXData?.spot_price || 100;
+        const strikeRange = Math.min(200, Math.max(20, Math.round(spotPrice * 0.03)));
+
+        const data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
         flowData = data;
         renderFlowData(data);
     } catch (error) {
@@ -1852,10 +1857,6 @@ function switchView(view) {
     const heatmapContainer = document.querySelector('.heatmap-container');
     const flowContainer = document.getElementById('flowContainer');
     const zonesSidebar = document.querySelector('.zones-sidebar');
-
-    console.log('Switching view to:', view, 'isFlowView:', isFlowView);
-    console.log('heatmapContainer:', heatmapContainer);
-    console.log('flowContainer:', flowContainer);
 
     if (heatmapContainer) {
         heatmapContainer.style.display = isFlowView ? 'none' : '';
