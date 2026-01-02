@@ -2965,8 +2965,12 @@ function setupEventHandlers() {
     });
 
     // GEX/VEX view toggle buttons
-    document.querySelectorAll('.btn-view').forEach(btn => {
+    const viewButtons = document.querySelectorAll('.btn-view');
+    console.log('[setupEventHandlers] Found', viewButtons.length, 'view buttons');
+    viewButtons.forEach(btn => {
+        console.log('[setupEventHandlers] Adding click handler to button:', btn.dataset.view);
         btn.addEventListener('click', () => {
+            console.log('[btn-view click] Button clicked:', btn.dataset.view);
             const view = btn.dataset.view;
             switchView(view);
         });
