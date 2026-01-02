@@ -119,6 +119,26 @@ class MassiveGEXProvider:
 
         return 0
 
+    async def get_quote(self, symbol: str) -> dict:
+        """
+        Get current quote for a symbol.
+        Returns dict with: symbol, last, bid, ask, volume.
+        Compatible with Tradier's interface.
+        """
+        symbol = symbol.upper()
+        price = await self.get_spot_price(symbol)
+
+        if price > 0:
+            return {
+                "symbol": symbol,
+                "last": price,
+                "bid": price - 0.01,
+                "ask": price + 0.01,
+                "volume": 0,
+            }
+
+        return None
+
     async def get_options_chain(
         self,
         symbol: str,
