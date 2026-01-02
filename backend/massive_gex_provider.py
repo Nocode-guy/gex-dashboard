@@ -78,8 +78,11 @@ class MassiveGEXProvider:
 
         client = await self._get_client()
 
-        # PRIMARY: Get price from options snapshot (works for all symbols including indices)
-        # The free Polygon tier supports options snapshots but not stock/index snapshots
+        # Index symbols don't have underlying price in options data - need to calculate
+        index_symbols = {"SPX", "NDX", "RUT", "VIX", "DJX", "OEX"}
+        is_index = symbol in index_symbols
+
+        # PRIMARY: Get price from options snapshot (works for stocks)
         try:
             url = f"{self.base_url}/v3/snapshot/options/{symbol}"
             response = await client.get(url, params={"apiKey": self.api_key, "limit": 1})
@@ -96,7 +99,18 @@ class MassiveGEXProvider:
         except Exception as e:
             print(f"[Massive] Error getting spot from options for {symbol}: {e}")
 
-        # FALLBACK: Try stock snapshot endpoint (may fail on free tier)
+        # INDEX FALLBACK: Calculate spot from ITM options (for SPX, NDX, etc.)
+        if is_index:
+            try:
+                price = await self._estimate_index_spot(symbol)
+                if price > 0:
+                    self._spot_cache[symbol] = (price, datetime.now())
+                    print(f"[Massive] Estimated {symbol} spot from options: ${price:.2f}")
+                    return price
+            except Exception as e:
+                print(f"[Massive] Error estimating index spot for {symbol}: {e}")
+
+        # STOCK FALLBACK: Try stock snapshot endpoint (may fail on free tier)
         try:
             url = f"{self.base_url}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
             response = await client.get(url, params={"apiKey": self.api_key})
@@ -117,6 +131,63 @@ class MassiveGEXProvider:
 
         except Exception as e:
             pass  # Expected to fail on free tier, no need to log
+
+        return 0
+
+    async def _estimate_index_spot(self, symbol: str) -> float:
+        """
+        Estimate index spot price from ITM options.
+        For ITM calls: Spot ≈ Strike + Call_Mid
+        For ITM puts: Spot ≈ Strike - Put_Mid
+        """
+        client = await self._get_client()
+
+        # Get a range of options to find ATM area
+        # First, get some options to figure out approximate spot level
+        url = f"{self.base_url}/v3/snapshot/options/{symbol}"
+        params = {
+            "apiKey": self.api_key,
+            "limit": 100,
+            "expiration_date.lte": (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
+        }
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        results = data.get("results", [])
+        if not results:
+            return 0
+
+        estimates = []
+        for r in results:
+            details = r.get("details", {})
+            strike = details.get("strike_price", 0)
+            ct = details.get("contract_type", "")
+            quote = r.get("last_quote", {})
+            bid = quote.get("bid", 0) or 0
+            ask = quote.get("ask", 0) or 0
+
+            if not bid or not ask or not strike:
+                continue
+
+            mid = (bid + ask) / 2
+
+            # Only use significantly ITM options (mid > 50) to avoid time value issues
+            if ct == "call" and mid > 50:
+                spot_est = strike + mid
+                estimates.append(spot_est)
+            elif ct == "put" and mid > 50:
+                spot_est = strike - mid
+                estimates.append(spot_est)
+
+        if estimates:
+            # Use median to avoid outliers
+            estimates.sort()
+            n = len(estimates)
+            if n % 2 == 0:
+                return (estimates[n//2 - 1] + estimates[n//2]) / 2
+            else:
+                return estimates[n//2]
 
         return 0
 
