@@ -72,8 +72,8 @@ SECRET_KEY = os.environ.get("GEX_SECRET_KEY", secrets.token_hex(32))
 # Session duration (24 hours)
 SESSION_MAX_AGE = 60 * 60 * 24
 
-# Enable/disable authentication (disable for local development if needed)
-AUTH_ENABLED = os.environ.get("GEX_AUTH_ENABLED", "true").lower() == "true"
+# Enable/disable authentication (disabled by default)
+AUTH_ENABLED = os.environ.get("GEX_AUTH_ENABLED", "false").lower() == "true"
 
 
 def hash_password(password: str) -> str:
