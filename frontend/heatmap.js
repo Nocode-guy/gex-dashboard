@@ -1847,11 +1847,25 @@ function switchView(view) {
 
     // Handle flow view specially - show/hide containers
     const isFlowView = view === 'flow';
-    if (elements.heatmapContainer) {
-        elements.heatmapContainer.style.display = isFlowView ? 'none' : '';
+
+    // Get containers directly to ensure we have them
+    const heatmapContainer = document.querySelector('.heatmap-container');
+    const flowContainer = document.getElementById('flowContainer');
+    const zonesSidebar = document.querySelector('.zones-sidebar');
+
+    console.log('Switching view to:', view, 'isFlowView:', isFlowView);
+    console.log('heatmapContainer:', heatmapContainer);
+    console.log('flowContainer:', flowContainer);
+
+    if (heatmapContainer) {
+        heatmapContainer.style.display = isFlowView ? 'none' : '';
     }
-    if (elements.flowContainer) {
-        elements.flowContainer.style.display = isFlowView ? 'flex' : 'none';
+    if (flowContainer) {
+        flowContainer.style.display = isFlowView ? 'flex' : 'none';
+    }
+    // Also hide zones sidebar in flow view
+    if (zonesSidebar) {
+        zonesSidebar.style.display = isFlowView ? 'none' : '';
     }
 
     // Update view title
