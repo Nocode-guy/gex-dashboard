@@ -3345,6 +3345,12 @@ async function init() {
             await loadSymbol(currentSymbol);
         }
 
+        // Apply the saved view (GEX/VEX/DEX/Flow) AFTER loading data
+        // This ensures flow container is shown if user was on flow view
+        if (currentView !== 'gex') {
+            switchView(currentView);
+        }
+
         // Setup auto-refresh
         setupAutoRefresh();
 
