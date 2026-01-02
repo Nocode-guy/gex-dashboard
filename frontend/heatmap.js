@@ -326,10 +326,13 @@ async function fetchFlowData(symbol) {
     }
 
     try {
-        // Calculate strike range based on spot price (~3% of price, min 20, max 200)
-        // This ensures SPX (6800) gets ~200 range while SPY (680) gets ~20
+        // Calculate strike range to get ~40 strikes for all symbols
+        // SPY/QQQ have $1 strikes, SPX has $5 strikes, so scale by price level
         const spotPrice = currentData?.spot_price || 100;
-        const strikeRange = Math.min(200, Math.max(20, Math.round(spotPrice * 0.03)));
+        // Target ~40 strikes: for SPY ($680, $1 strikes) = 40 range
+        // For SPX ($6800, $5 strikes) = 200 range (40 * 5)
+        const strikeInterval = spotPrice > 1000 ? 5 : 1;
+        const strikeRange = 40 * strikeInterval;
 
         const data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
         flowData = data;
@@ -407,6 +410,9 @@ function formatPremium(value) {
 function renderPressureBars(strikePressure, spotPrice) {
     if (!elements.flowPressureBars) return;
 
+    // Preserve scroll position to prevent page jumping on updates
+    const scrollTop = elements.flowPressureBars.scrollTop;
+
     // Convert object to sorted array
     const strikes = Object.entries(strikePressure)
         .map(([strike, data]) => ({
@@ -459,6 +465,9 @@ function renderPressureBars(strikePressure, spotPrice) {
             </div>
         `;
     }).join('');
+
+    // Restore scroll position after render
+    elements.flowPressureBars.scrollTop = scrollTop;
 }
 
 function formatCompact(value) {
@@ -2812,7 +2821,7 @@ function formatCurrency(val) {
 }
 
 // Switch to a symbol from Quiver popup (click on ticker)
-function switchToSymbolFromQuiver(ticker) {
+async function switchToSymbolFromQuiver(ticker) {
     if (!ticker) return;
 
     // Close all Quiver popups
@@ -2826,7 +2835,13 @@ function switchToSymbolFromQuiver(ticker) {
         switchSymbol(ticker.toUpperCase());
     } else {
         // Add and switch to new symbol
-        addSymbol(ticker.toUpperCase());
+        try {
+            await addSymbol(ticker.toUpperCase());
+            await fetchSymbols(); // Refresh symbol list
+            switchSymbol(ticker.toUpperCase());
+        } catch (error) {
+            console.error(`Failed to add ${ticker}:`, error);
+        }
     }
 
 }
