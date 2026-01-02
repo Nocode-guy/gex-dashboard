@@ -143,8 +143,9 @@ class MassiveGEXProvider:
         client = await self._get_client()
 
         # Get a range of options to find ATM area
-        # First, get some options to figure out approximate spot level
-        url = f"{self.base_url}/v3/snapshot/options/{symbol}"
+        # Use I: prefix for index options to get proper data
+        api_symbol = f"I:{symbol}"
+        url = f"{self.base_url}/v3/snapshot/options/{api_symbol}"
         params = {
             "apiKey": self.api_key,
             "limit": 100,
@@ -290,6 +291,10 @@ class MassiveGEXProvider:
         symbol = symbol.upper()
         client = await self._get_client()
 
+        # Index symbols need I: prefix for options API to get Greeks
+        index_symbols = {"SPX", "NDX", "RUT", "VIX", "DJX", "OEX"}
+        api_symbol = f"I:{symbol}" if symbol in index_symbols else symbol
+
         # Calculate date range
         today = datetime.now()
         min_exp = (today + timedelta(days=min_dte)).strftime("%Y-%m-%d")
@@ -305,7 +310,7 @@ class MassiveGEXProvider:
                 if next_url:
                     response = await client.get(next_url)
                 else:
-                    url = f"{self.base_url}/v3/snapshot/options/{symbol}"
+                    url = f"{self.base_url}/v3/snapshot/options/{api_symbol}"
                     params = {
                         "apiKey": self.api_key,
                         "limit": 250,
