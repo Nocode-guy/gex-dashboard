@@ -3340,6 +3340,10 @@ async function init() {
     // Start the clock immediately
     startClock();
 
+    // Setup event handlers EARLY so buttons work even if API fails
+    setupEventHandlers();
+    setupStrikeClickHandlers();
+
     setConnectionStatus('', 'Connecting...');
 
     try {
@@ -3378,12 +3382,6 @@ async function init() {
         checkMarketStatus();
         // Check market status every minute
         setInterval(checkMarketStatus, 60000);
-
-        // Setup event handlers
-        setupEventHandlers();
-
-        // Setup strike click handlers (uses event delegation, only needs to be done once)
-        setupStrikeClickHandlers();
 
         // If was in trinity mode, switch to it
         if (viewMode === 'trinity') {
