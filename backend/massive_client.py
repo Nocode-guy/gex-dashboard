@@ -277,13 +277,18 @@ class MassiveClient:
             limit: Max contracts to return
         """
         client = await self._get_client()
+        symbol = symbol.upper()
+
+        # Index symbols need I: prefix for options API
+        index_symbols = {"SPX", "NDX", "RUT", "VIX", "DJX", "OEX"}
+        api_symbol = f"I:{symbol}" if symbol in index_symbols else symbol
 
         params = {
             "apiKey": self.api_key,
             "limit": limit
         }
 
-        url = f"{self.base_url}/v3/snapshot/options/{symbol.upper()}"
+        url = f"{self.base_url}/v3/snapshot/options/{api_symbol}"
 
         results = []
         try:
