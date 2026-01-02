@@ -139,6 +139,42 @@ class MassiveGEXProvider:
 
         return None
 
+    def search_symbol(self, query: str, max_results: int = 8) -> list:
+        """
+        Search for symbols by name or ticker.
+        Uses Polygon's ticker search API.
+        """
+        import requests
+
+        try:
+            url = f"{self.base_url}/v3/reference/tickers"
+            params = {
+                "apiKey": self.api_key,
+                "search": query,
+                "active": "true",
+                "market": "stocks",
+                "limit": max_results
+            }
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            results = []
+            for ticker in data.get("results", []):
+                results.append({
+                    "symbol": ticker.get("ticker", ""),
+                    "name": ticker.get("name", ""),
+                    "type": ticker.get("type", "stock"),
+                    "exchange": ticker.get("primary_exchange", "")
+                })
+
+            return results
+
+        except Exception as e:
+            print(f"[Massive] Search error: {e}")
+            # Fallback: just return the query as uppercase
+            return [{"symbol": query.upper(), "name": query.upper(), "type": "stock", "exchange": ""}]
+
     async def get_options_chain(
         self,
         symbol: str,
