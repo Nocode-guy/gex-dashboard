@@ -78,25 +78,44 @@ class MassiveGEXProvider:
 
         client = await self._get_client()
 
+        # Handle index symbols (SPX, NDX, RUT, VIX, etc.)
+        index_symbols = {"SPX", "NDX", "RUT", "VIX", "DJX", "OEX"}
+        is_index = symbol in index_symbols
+
         try:
-            # Get stock snapshot
-            url = f"{self.base_url}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-            response = await client.get(url, params={"apiKey": self.api_key})
-            response.raise_for_status()
-            data = response.json()
+            if is_index:
+                # Get index value from indices endpoint
+                index_ticker = f"I:{symbol}"
+                url = f"{self.base_url}/v2/aggs/ticker/{index_ticker}/prev"
+                response = await client.get(url, params={"apiKey": self.api_key})
+                response.raise_for_status()
+                data = response.json()
 
-            ticker = data.get("ticker", {})
-            # Try different price fields
-            price = (
-                ticker.get("lastTrade", {}).get("p", 0) or
-                ticker.get("prevDay", {}).get("c", 0) or
-                ticker.get("min", {}).get("c", 0) or
-                0
-            )
+                results = data.get("results", [])
+                if results:
+                    price = results[0].get("c", 0)  # closing price
+                    if price > 0:
+                        self._spot_cache[symbol] = (price, datetime.now())
+                        return price
+            else:
+                # Get stock snapshot
+                url = f"{self.base_url}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
+                response = await client.get(url, params={"apiKey": self.api_key})
+                response.raise_for_status()
+                data = response.json()
 
-            if price > 0:
-                self._spot_cache[symbol] = (price, datetime.now())
-                return price
+                ticker = data.get("ticker", {})
+                # Try different price fields
+                price = (
+                    ticker.get("lastTrade", {}).get("p", 0) or
+                    ticker.get("prevDay", {}).get("c", 0) or
+                    ticker.get("min", {}).get("c", 0) or
+                    0
+                )
+
+                if price > 0:
+                    self._spot_cache[symbol] = (price, datetime.now())
+                    return price
 
         except Exception as e:
             print(f"[Massive] Error getting spot price for {symbol}: {e}")
@@ -146,6 +165,29 @@ class MassiveGEXProvider:
         """
         import requests
 
+        results = []
+        query_upper = query.upper()
+
+        # Check for index symbols first
+        index_symbols = {
+            "SPX": "S&P 500 Index",
+            "NDX": "NASDAQ 100 Index",
+            "RUT": "Russell 2000 Index",
+            "VIX": "CBOE Volatility Index",
+            "DJX": "Dow Jones Index",
+            "OEX": "S&P 100 Index"
+        }
+
+        # Add matching indices to results
+        for sym, name in index_symbols.items():
+            if query_upper in sym or query_upper in name.upper():
+                results.append({
+                    "symbol": sym,
+                    "name": name,
+                    "type": "index",
+                    "exchange": "INDEX"
+                })
+
         try:
             url = f"{self.base_url}/v3/reference/tickers"
             params = {
@@ -153,13 +195,12 @@ class MassiveGEXProvider:
                 "search": query,
                 "active": "true",
                 "market": "stocks",
-                "limit": max_results
+                "limit": max_results - len(results)
             }
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
 
-            results = []
             for ticker in data.get("results", []):
                 results.append({
                     "symbol": ticker.get("ticker", ""),
@@ -168,12 +209,14 @@ class MassiveGEXProvider:
                     "exchange": ticker.get("primary_exchange", "")
                 })
 
-            return results
+            return results[:max_results]
 
         except Exception as e:
             print(f"[Massive] Search error: {e}")
             # Fallback: just return the query as uppercase
-            return [{"symbol": query.upper(), "name": query.upper(), "type": "stock", "exchange": ""}]
+            if not results:
+                return [{"symbol": query_upper, "name": query_upper, "type": "stock", "exchange": ""}]
+            return results
 
     async def get_options_chain(
         self,
