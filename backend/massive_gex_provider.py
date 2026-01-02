@@ -82,7 +82,19 @@ class MassiveGEXProvider:
         index_symbols = {"SPX", "NDX", "RUT", "VIX", "DJX", "OEX"}
         is_index = symbol in index_symbols
 
-        # PRIMARY: Get price from options snapshot (works for stocks)
+        # For INDEX symbols, go directly to estimation (they don't have underlying_asset.price)
+        if is_index:
+            try:
+                price = await self._estimate_index_spot(symbol)
+                if price > 0:
+                    self._spot_cache[symbol] = (price, datetime.now())
+                    print(f"[Massive] Estimated {symbol} spot from options: ${price:.2f}")
+                    return price
+            except Exception as e:
+                print(f"[Massive] Error estimating index spot for {symbol}: {e}")
+            return 0  # Index symbols have no other fallback
+
+        # STOCK PRIMARY: Get price from options snapshot (works for stocks)
         try:
             url = f"{self.base_url}/v3/snapshot/options/{symbol}"
             response = await client.get(url, params={"apiKey": self.api_key, "limit": 1})
@@ -98,17 +110,6 @@ class MassiveGEXProvider:
 
         except Exception as e:
             print(f"[Massive] Error getting spot from options for {symbol}: {e}")
-
-        # INDEX FALLBACK: Calculate spot from ITM options (for SPX, NDX, etc.)
-        if is_index:
-            try:
-                price = await self._estimate_index_spot(symbol)
-                if price > 0:
-                    self._spot_cache[symbol] = (price, datetime.now())
-                    print(f"[Massive] Estimated {symbol} spot from options: ${price:.2f}")
-                    return price
-            except Exception as e:
-                print(f"[Massive] Error estimating index spot for {symbol}: {e}")
 
         # STOCK FALLBACK: Try stock snapshot endpoint (may fail on free tier)
         try:
