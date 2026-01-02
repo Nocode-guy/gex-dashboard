@@ -1856,6 +1856,7 @@ async function loadSymbol(symbol, forceRefresh = false) {
 }
 
 function switchView(view) {
+    console.log('[switchView] Called with view:', view);
     currentView = view;
     saveState(); // Persist view
 
@@ -1866,17 +1867,21 @@ function switchView(view) {
 
     // Handle flow view specially - show/hide containers
     const isFlowView = view === 'flow';
+    console.log('[switchView] isFlowView:', isFlowView);
 
     // Get containers directly to ensure we have them
     const heatmapContainer = document.querySelector('.heatmap-container');
     const flowContainer = document.getElementById('flowContainer');
     const zonesSidebar = document.querySelector('.zones-sidebar');
+    console.log('[switchView] Found containers:', { heatmap: !!heatmapContainer, flow: !!flowContainer, zones: !!zonesSidebar });
 
     if (heatmapContainer) {
         heatmapContainer.style.display = isFlowView ? 'none' : '';
+        console.log('[switchView] Set heatmap display to:', heatmapContainer.style.display);
     }
     if (flowContainer) {
         flowContainer.style.display = isFlowView ? 'flex' : 'none';
+        console.log('[switchView] Set flow display to:', flowContainer.style.display);
     }
     // Also hide zones sidebar in flow view
     if (zonesSidebar) {
