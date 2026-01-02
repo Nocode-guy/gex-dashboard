@@ -3352,6 +3352,7 @@ async function init() {
     // Setup event handlers EARLY so buttons work even if API fails
     setupEventHandlers();
     setupStrikeClickHandlers();
+    setupPlaybackHandlers();
 
     setConnectionStatus('', 'Connecting...');
 
@@ -3440,6 +3441,342 @@ function restoreUIState() {
     });
 
     console.log('Restored state:', { currentSymbol, currentView, expirationMode, viewMode, refreshInterval });
+}
+
+// =============================================================================
+// PLAYBACK MODE
+// =============================================================================
+
+let playbackMode = false;
+let playbackData = null;  // Array of snapshots for current date
+let playbackIndex = 0;    // Current position in playback
+let playbackPlaying = false;
+let playbackInterval = null;
+let playbackSpeed = 2;    // Seconds between frames
+
+// Playback elements (initialized in setupPlaybackHandlers)
+let playbackElements = {};
+
+function setupPlaybackHandlers() {
+    playbackElements = {
+        bar: document.getElementById('playbackBar'),
+        datePicker: document.getElementById('playbackDatePicker'),
+        time: document.getElementById('playbackTime'),
+        slider: document.getElementById('playbackSlider'),
+        startTime: document.getElementById('playbackStart'),
+        endTime: document.getElementById('playbackEnd'),
+        speed: document.getElementById('playbackSpeed'),
+        toggleBtn: document.getElementById('btnPlaybackToggle'),
+        enterBtn: document.getElementById('btnEnterPlayback'),
+        exitBtn: document.getElementById('btnPlaybackExit'),
+        prevBtn: document.getElementById('btnPlaybackPrev'),
+        backBtn: document.getElementById('btnPlaybackBack'),
+        forwardBtn: document.getElementById('btnPlaybackForward'),
+        nextBtn: document.getElementById('btnPlaybackNext')
+    };
+
+    // Enter playback button
+    if (playbackElements.enterBtn) {
+        playbackElements.enterBtn.addEventListener('click', enterPlaybackMode);
+    }
+
+    // Exit playback button
+    if (playbackElements.exitBtn) {
+        playbackElements.exitBtn.addEventListener('click', exitPlaybackMode);
+    }
+
+    // Play/Pause toggle
+    if (playbackElements.toggleBtn) {
+        playbackElements.toggleBtn.addEventListener('click', togglePlayback);
+    }
+
+    // Step buttons
+    if (playbackElements.prevBtn) {
+        playbackElements.prevBtn.addEventListener('click', () => seekPlayback(0));
+    }
+    if (playbackElements.backBtn) {
+        playbackElements.backBtn.addEventListener('click', () => stepPlayback(-1));
+    }
+    if (playbackElements.forwardBtn) {
+        playbackElements.forwardBtn.addEventListener('click', () => stepPlayback(1));
+    }
+    if (playbackElements.nextBtn) {
+        playbackElements.nextBtn.addEventListener('click', () => seekPlayback(playbackData?.length - 1 || 0));
+    }
+
+    // Slider
+    if (playbackElements.slider) {
+        playbackElements.slider.addEventListener('input', (e) => {
+            if (playbackData && playbackData.length > 0) {
+                const index = Math.round((e.target.value / 100) * (playbackData.length - 1));
+                seekPlayback(index);
+            }
+        });
+    }
+
+    // Date picker
+    if (playbackElements.datePicker) {
+        playbackElements.datePicker.addEventListener('change', async (e) => {
+            const date = e.target.value;
+            if (date) {
+                await loadPlaybackDate(date);
+            }
+        });
+    }
+
+    // Speed selector
+    if (playbackElements.speed) {
+        playbackElements.speed.addEventListener('change', (e) => {
+            playbackSpeed = parseFloat(e.target.value);
+            if (playbackPlaying) {
+                // Restart interval with new speed
+                stopPlaybackInterval();
+                startPlaybackInterval();
+            }
+        });
+    }
+}
+
+async function enterPlaybackMode() {
+    console.log('[Playback] Entering playback mode');
+    playbackMode = true;
+
+    // Stop auto-refresh
+    if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+    }
+
+    // Show playback bar
+    if (playbackElements.bar) {
+        playbackElements.bar.style.display = 'flex';
+    }
+
+    // Add playback mode class to body
+    document.body.classList.add('playback-mode');
+
+    // Load available dates
+    try {
+        const response = await fetchAPI(`/playback/${currentSymbol}/dates`);
+        const dates = response.available_dates || [];
+
+        if (dates.length > 0) {
+            // Set date picker to most recent date with data
+            playbackElements.datePicker.value = dates[0];
+            await loadPlaybackDate(dates[0]);
+        } else {
+            alert('No playback data available yet. Data is recorded during market hours.');
+            exitPlaybackMode();
+        }
+    } catch (error) {
+        console.error('[Playback] Error loading dates:', error);
+        alert('Failed to load playback data');
+        exitPlaybackMode();
+    }
+}
+
+function exitPlaybackMode() {
+    console.log('[Playback] Exiting playback mode');
+    playbackMode = false;
+    playbackPlaying = false;
+    stopPlaybackInterval();
+
+    // Hide playback bar
+    if (playbackElements.bar) {
+        playbackElements.bar.style.display = 'none';
+    }
+
+    // Remove playback mode class
+    document.body.classList.remove('playback-mode');
+
+    // Reset button state
+    if (playbackElements.toggleBtn) {
+        playbackElements.toggleBtn.textContent = '▶';
+        playbackElements.toggleBtn.classList.remove('playing');
+    }
+
+    // Restart auto-refresh and load live data
+    setupAutoRefresh();
+    loadSymbol(currentSymbol, true);
+}
+
+async function loadPlaybackDate(date) {
+    console.log('[Playback] Loading date:', date);
+
+    try {
+        const response = await fetchAPI(`/playback/${currentSymbol}/${date}`);
+        playbackData = response.snapshots || [];
+        playbackIndex = 0;
+
+        if (playbackData.length === 0) {
+            playbackElements.time.textContent = 'No data';
+            return;
+        }
+
+        // Update slider range
+        playbackElements.slider.max = 100;
+        playbackElements.slider.value = 0;
+
+        // Update time labels
+        const firstTime = new Date(playbackData[0].time);
+        const lastTime = new Date(playbackData[playbackData.length - 1].time);
+        playbackElements.startTime.textContent = formatPlaybackTime(firstTime);
+        playbackElements.endTime.textContent = formatPlaybackTime(lastTime);
+
+        // Display first snapshot
+        displayPlaybackSnapshot(0);
+
+        console.log(`[Playback] Loaded ${playbackData.length} snapshots for ${date}`);
+
+    } catch (error) {
+        console.error('[Playback] Error loading date:', error);
+        playbackData = [];
+    }
+}
+
+function displayPlaybackSnapshot(index) {
+    if (!playbackData || index < 0 || index >= playbackData.length) return;
+
+    playbackIndex = index;
+    const snapshot = playbackData[index];
+
+    // Update time display
+    const time = new Date(snapshot.time);
+    playbackElements.time.textContent = formatPlaybackTime(time);
+
+    // Update slider
+    playbackElements.slider.value = (index / (playbackData.length - 1)) * 100;
+
+    // Update the display with snapshot data
+    updateDisplayFromSnapshot(snapshot);
+}
+
+function updateDisplayFromSnapshot(snapshot) {
+    // Update spot price
+    if (elements.spotPrice) {
+        elements.spotPrice.textContent = `$${snapshot.spot_price.toFixed(2)}`;
+    }
+
+    // Update net GEX
+    if (elements.netGex) {
+        elements.netGex.textContent = formatGEX(snapshot.net_gex);
+    }
+
+    // Update King node
+    if (elements.kingNode && snapshot.king_strike) {
+        elements.kingNode.textContent = snapshot.king_strike;
+    }
+    if (elements.kingGex && snapshot.king_gex) {
+        elements.kingGex.textContent = formatGEX(snapshot.king_gex);
+    }
+
+    // Update Zero Gamma
+    if (elements.zeroGamma && snapshot.zero_gamma_level) {
+        elements.zeroGamma.textContent = snapshot.zero_gamma_level.toFixed(2);
+    }
+
+    // Update zones if available
+    if (snapshot.zones && snapshot.zones.length > 0) {
+        renderZonesFromPlayback(snapshot.zones);
+    }
+
+    // Update heatmap if available
+    if (snapshot.heatmap) {
+        renderHeatmapFromPlayback(snapshot);
+    }
+}
+
+function renderZonesFromPlayback(zones) {
+    if (!elements.zonesContainer) return;
+
+    const zonesHtml = zones.map(zone => {
+        const isPositive = zone.type === 'positive';
+        const roleClass = zone.role || '';
+        const gexFormatted = formatGEX(zone.gex);
+
+        return `
+            <div class="zone-card ${isPositive ? 'positive' : 'negative'} ${roleClass}">
+                <div class="zone-strike">${zone.strike}</div>
+                <div class="zone-gex">${gexFormatted}</div>
+                <div class="zone-role">${zone.role || ''}</div>
+            </div>
+        `;
+    }).join('');
+
+    elements.zonesContainer.innerHTML = zonesHtml;
+}
+
+function renderHeatmapFromPlayback(snapshot) {
+    // For now, just update the basic info
+    // Full heatmap rendering would require more data
+    console.log('[Playback] Heatmap data available but simplified rendering');
+}
+
+function togglePlayback() {
+    if (playbackPlaying) {
+        pausePlayback();
+    } else {
+        startPlayback();
+    }
+}
+
+function startPlayback() {
+    if (!playbackData || playbackData.length === 0) return;
+
+    playbackPlaying = true;
+    playbackElements.toggleBtn.textContent = '⏸';
+    playbackElements.toggleBtn.classList.add('playing');
+
+    startPlaybackInterval();
+}
+
+function pausePlayback() {
+    playbackPlaying = false;
+    playbackElements.toggleBtn.textContent = '▶';
+    playbackElements.toggleBtn.classList.remove('playing');
+
+    stopPlaybackInterval();
+}
+
+function startPlaybackInterval() {
+    const intervalMs = 1000 / playbackSpeed;
+
+    playbackInterval = setInterval(() => {
+        if (playbackIndex < playbackData.length - 1) {
+            displayPlaybackSnapshot(playbackIndex + 1);
+        } else {
+            // Reached end, pause
+            pausePlayback();
+        }
+    }, intervalMs);
+}
+
+function stopPlaybackInterval() {
+    if (playbackInterval) {
+        clearInterval(playbackInterval);
+        playbackInterval = null;
+    }
+}
+
+function stepPlayback(direction) {
+    const newIndex = playbackIndex + direction;
+    if (newIndex >= 0 && newIndex < playbackData.length) {
+        displayPlaybackSnapshot(newIndex);
+    }
+}
+
+function seekPlayback(index) {
+    if (index >= 0 && index < playbackData.length) {
+        displayPlaybackSnapshot(index);
+    }
+}
+
+function formatPlaybackTime(date) {
+    return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+    });
 }
 
 // Start the app

@@ -544,6 +544,36 @@ class RefreshManager:
             except Exception as db_err:
                 print(f"[DB] Error saving snapshot: {db_err}")
 
+            # Save intraday snapshot for playback (every 5 min during market hours)
+            try:
+                from database import save_intraday_snapshot
+                # Prepare heatmap data for storage
+                heatmap_data = None
+                if result.heatmap:
+                    heatmap_data = {
+                        "strikes": result.heatmap.strikes,
+                        "expirations": result.heatmap.expirations,
+                        "data": result.heatmap.data
+                    }
+
+                saved = save_intraday_snapshot(
+                    symbol=symbol,
+                    spot_price=result.spot_price,
+                    net_gex=result.net_gex,
+                    net_vex=result.net_vex,
+                    net_dex=result.net_dex,
+                    king_strike=result.king_node.strike if result.king_node else None,
+                    king_gex=result.king_node.gex if result.king_node else None,
+                    gatekeeper_strike=result.gatekeeper_node.strike if result.gatekeeper_node else None,
+                    zero_gamma_level=result.zero_gamma_level,
+                    zones=[z.to_dict() for z in result.zones],
+                    heatmap_data=heatmap_data
+                )
+                if saved:
+                    print(f"[Playback] Saved intraday snapshot for {symbol}")
+            except Exception as pb_err:
+                pass  # Silent fail for playback - not critical
+
             print(f"[{datetime.now().strftime('%H:%M:%S')}] [{get_provider_name()}] Refreshed {symbol}: "
                   f"${spot:.2f}, {len(result.zones)} zones, "
                   f"King: {result.king_node.strike if result.king_node else 'N/A'}")
@@ -1098,6 +1128,81 @@ async def get_symbol_king_history(
         "symbol": symbol,
         "days": days,
         "king_history": history
+    }
+
+
+# =============================================================================
+# PLAYBACK ENDPOINTS
+# =============================================================================
+@app.get("/playback/{symbol}/dates")
+async def get_playback_dates(
+    symbol: str,
+    days: int = Query(30, description="Number of days to look back")
+):
+    """
+    Get list of dates with playback data available.
+    """
+    from database import get_available_playback_dates
+    symbol = symbol.upper()
+    dates = get_available_playback_dates(symbol, days)
+
+    return {
+        "symbol": symbol,
+        "available_dates": dates,
+        "count": len(dates)
+    }
+
+
+@app.get("/playback/{symbol}/{date}")
+async def get_playback_data(
+    symbol: str,
+    date: str
+):
+    """
+    Get all intraday snapshots for playback on a specific date.
+    Returns data in chronological order for timeline scrubbing.
+
+    Args:
+        symbol: Stock symbol
+        date: Date in YYYY-MM-DD format
+    """
+    from database import get_intraday_snapshots
+    symbol = symbol.upper()
+    snapshots = get_intraday_snapshots(symbol, date)
+
+    if not snapshots:
+        return {
+            "symbol": symbol,
+            "date": date,
+            "snapshots": [],
+            "count": 0,
+            "message": "No playback data for this date"
+        }
+
+    # Format timestamps for frontend
+    formatted = []
+    for snap in snapshots:
+        formatted.append({
+            "time": snap['timestamp'],
+            "spot_price": snap['spot_price'],
+            "net_gex": snap['net_gex'],
+            "net_vex": snap.get('net_vex'),
+            "net_dex": snap.get('net_dex'),
+            "king_strike": snap.get('king_strike'),
+            "king_gex": snap.get('king_gex'),
+            "gatekeeper_strike": snap.get('gatekeeper_strike'),
+            "zero_gamma_level": snap.get('zero_gamma_level'),
+            "zones": snap.get('zones', []),
+            "heatmap": snap.get('heatmap')
+        })
+
+    return {
+        "symbol": symbol,
+        "date": date,
+        "snapshots": formatted,
+        "count": len(formatted),
+        "first_time": formatted[0]['time'] if formatted else None,
+        "last_time": formatted[-1]['time'] if formatted else None
     }
 
 

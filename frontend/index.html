@@ -96,6 +96,37 @@
                 </div>
             </div>
 
+            <!-- Playback Controls (hidden by default) -->
+            <div class="playback-bar" id="playbackBar" style="display: none;">
+                <div class="playback-controls">
+                    <button class="playback-btn" id="btnPlaybackPrev" title="Previous snapshot">◀◀</button>
+                    <button class="playback-btn" id="btnPlaybackBack" title="Step back">◀</button>
+                    <button class="playback-btn playback-main" id="btnPlaybackToggle" title="Play/Pause">▶</button>
+                    <button class="playback-btn" id="btnPlaybackForward" title="Step forward">▶</button>
+                    <button class="playback-btn" id="btnPlaybackNext" title="Next snapshot">▶▶</button>
+                </div>
+                <div class="playback-date">
+                    <input type="date" id="playbackDatePicker" class="playback-date-input">
+                    <span class="playback-time" id="playbackTime">--:--</span>
+                </div>
+                <div class="playback-timeline">
+                    <input type="range" id="playbackSlider" class="playback-slider" min="0" max="100" value="0">
+                    <div class="playback-range">
+                        <span id="playbackStart">9:30 AM</span>
+                        <span id="playbackEnd">4:00 PM</span>
+                    </div>
+                </div>
+                <div class="playback-speed">
+                    <select id="playbackSpeed" class="playback-speed-select">
+                        <option value="1">1x</option>
+                        <option value="2" selected>2x</option>
+                        <option value="5">5x</option>
+                        <option value="10">10x</option>
+                    </select>
+                </div>
+                <button class="playback-btn playback-exit" id="btnPlaybackExit" title="Exit playback">✕ Live</button>
+            </div>
+
             <!-- Symbol Header -->
             <div class="symbol-header">
                 <div class="symbol-info">
@@ -468,6 +499,7 @@
                 <span>Symbols: <span id="symbolCount">0</span></span>
             </div>
             <div class="footer-right">
+                <button class="btn-playback" id="btnEnterPlayback" title="Review historical GEX data">⏮ Playback</button>
                 <button class="btn-refresh" id="btnRefresh">↻ Refresh Now</button>
             </div>
         </footer>
