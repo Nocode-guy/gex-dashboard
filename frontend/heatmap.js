@@ -3565,13 +3565,60 @@ async function enterPlaybackMode() {
             playbackElements.datePicker.value = dates[0];
             await loadPlaybackDate(dates[0]);
         } else {
-            alert('No playback data available yet. Data is recorded during market hours.');
-            exitPlaybackMode();
+            // Show message but keep playback bar visible
+            if (playbackElements.time) {
+                playbackElements.time.textContent = 'No data yet';
+            }
+            // Set date picker to today
+            playbackElements.datePicker.value = new Date().toISOString().split('T')[0];
+            // Disable controls until data is available
+            disablePlaybackControls();
+            showPlaybackMessage('Recording starts during market hours. Check back after the market closes today.');
         }
     } catch (error) {
         console.error('[Playback] Error loading dates:', error);
-        alert('Failed to load playback data');
-        exitPlaybackMode();
+        if (playbackElements.time) {
+            playbackElements.time.textContent = 'Error loading';
+        }
+        showPlaybackMessage('Failed to load playback data. Try again later.');
+    }
+}
+
+function disablePlaybackControls() {
+    const btns = [playbackElements.prevBtn, playbackElements.backBtn,
+                  playbackElements.toggleBtn, playbackElements.forwardBtn,
+                  playbackElements.nextBtn];
+    btns.forEach(btn => {
+        if (btn) btn.disabled = true;
+    });
+    if (playbackElements.slider) {
+        playbackElements.slider.disabled = true;
+    }
+}
+
+function enablePlaybackControls() {
+    const btns = [playbackElements.prevBtn, playbackElements.backBtn,
+                  playbackElements.toggleBtn, playbackElements.forwardBtn,
+                  playbackElements.nextBtn];
+    btns.forEach(btn => {
+        if (btn) btn.disabled = false;
+    });
+    if (playbackElements.slider) {
+        playbackElements.slider.disabled = false;
+    }
+}
+
+function showPlaybackMessage(msg) {
+    // Show message in a toast or status area
+    const statusEl = document.getElementById('connectionStatus');
+    if (statusEl) {
+        const originalText = statusEl.textContent;
+        statusEl.textContent = msg;
+        statusEl.style.color = 'var(--accent-yellow)';
+        setTimeout(() => {
+            statusEl.textContent = originalText;
+            statusEl.style.color = '';
+        }, 5000);
     }
 }
 
@@ -3625,6 +3672,9 @@ async function loadPlaybackDate(date) {
 
         // Display first snapshot
         displayPlaybackSnapshot(0);
+
+        // Enable controls now that we have data
+        enablePlaybackControls();
 
         console.log(`[Playback] Loaded ${playbackData.length} snapshots for ${date}`);
 
