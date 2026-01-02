@@ -198,7 +198,8 @@ async function fetchAPI(endpoint) {
 
 async function fetchSymbols() {
     try {
-        const data = await fetchAPI('/symbols');
+        // Add cache buster to prevent browser caching
+        const data = await fetchAPI(`/symbols?_=${Date.now()}`);
         symbols = data.symbols || [];
         renderSymbolTabs();
         elements.symbolCount.textContent = symbols.length;
@@ -320,8 +321,8 @@ let flowData = null;
 async function fetchFlowData(symbol) {
     if (!symbol) return;
 
-    // Show loading
-    if (elements.flowPressureBars) {
+    // Only show loading on first load, not on updates (prevents flickering)
+    if (elements.flowPressureBars && !flowData) {
         elements.flowPressureBars.innerHTML = '<div class="flow-loading">Loading flow data...</div>';
     }
 
@@ -1809,6 +1810,10 @@ function togglePriceChart() {
 
 async function loadSymbol(symbol, forceRefresh = false) {
     try {
+        // Reset flow data when switching symbols (shows loading on first fetch)
+        if (currentSymbol !== symbol) {
+            flowData = null;
+        }
         currentSymbol = symbol;
         saveState(); // Persist current symbol
 
@@ -2832,13 +2837,13 @@ async function switchToSymbolFromQuiver(ticker) {
 
     if (existingSymbol) {
         // Switch to existing symbol
-        switchSymbol(ticker.toUpperCase());
+        await loadSymbol(ticker.toUpperCase());
     } else {
         // Add and switch to new symbol
         try {
             await addSymbol(ticker.toUpperCase());
             await fetchSymbols(); // Refresh symbol list
-            switchSymbol(ticker.toUpperCase());
+            await loadSymbol(ticker.toUpperCase());
         } catch (error) {
             console.error(`Failed to add ${ticker}:`, error);
         }
