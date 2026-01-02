@@ -328,7 +328,7 @@ async function fetchFlowData(symbol) {
     try {
         // Calculate strike range based on spot price (~3% of price, min 20, max 200)
         // This ensures SPX (6800) gets ~200 range while SPY (680) gets ~20
-        const spotPrice = currentGEXData?.spot_price || 100;
+        const spotPrice = currentData?.spot_price || 100;
         const strikeRange = Math.min(200, Math.max(20, Math.round(spotPrice * 0.03)));
 
         const data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
