@@ -126,6 +126,7 @@
                     <button class="btn-view active" data-view="gex">GEX</button>
                     <button class="btn-view" data-view="vex">VEX</button>
                     <button class="btn-view" data-view="dex">DEX</button>
+                    <button class="btn-view" data-view="flow">Flow</button>
                 </div>
                 <div class="heatmap-controls">
                     <button class="btn-control" id="btnCenterSpot" title="Center on Spot Price">
@@ -353,6 +354,54 @@
                         <span class="velocity-value" id="detailVelocity">--</span>
                         <span class="velocity-rate" id="detailVelocityRate">--</span>
                     </div>
+                </div>
+            </div>
+
+            <!-- Flow Container (hidden by default, shown when Flow tab selected) -->
+            <div class="flow-container" id="flowContainer" style="display: none;">
+                <div class="flow-header">
+                    <div class="flow-sentiment" id="flowSentiment">
+                        <span class="sentiment-icon">📊</span>
+                        <span class="sentiment-label">Overall:</span>
+                        <span class="sentiment-value" id="flowSentimentValue">NEUTRAL</span>
+                        <span class="sentiment-pressure" id="flowPressureValue">0%</span>
+                    </div>
+                    <div class="flow-summary">
+                        <div class="flow-stat">
+                            <span class="stat-label">Call Premium</span>
+                            <span class="stat-value call" id="flowCallPremium">$0</span>
+                        </div>
+                        <div class="flow-stat">
+                            <span class="stat-label">Put Premium</span>
+                            <span class="stat-value put" id="flowPutPremium">$0</span>
+                        </div>
+                        <div class="flow-stat">
+                            <span class="stat-label">Net Premium</span>
+                            <span class="stat-value" id="flowNetPremium">$0</span>
+                        </div>
+                    </div>
+                    <div class="flow-sweep-blocks">
+                        <div class="sweep-stat">
+                            <span class="sweep-icon">🔥</span>
+                            <span class="sweep-label">Sweeps:</span>
+                            <span class="sweep-bullish" id="sweepsBullish">0</span> /
+                            <span class="sweep-bearish" id="sweepsBearish">0</span>
+                        </div>
+                        <div class="block-stat">
+                            <span class="block-icon">📦</span>
+                            <span class="block-label">Blocks:</span>
+                            <span class="block-bullish" id="blocksBullish">0</span> /
+                            <span class="block-bearish" id="blocksBearish">0</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flow-pressure-bars" id="flowPressureBars">
+                    <!-- Pressure bars populated by JS -->
+                    <div class="flow-loading">Loading flow data...</div>
+                </div>
+                <div class="flow-footer">
+                    <span class="flow-source">Data: Massive (Polygon OPRA)</span>
+                    <span class="flow-update" id="flowUpdate">Last update: --</span>
                 </div>
             </div>
 

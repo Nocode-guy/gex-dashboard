@@ -149,6 +149,20 @@ function initElements() {
         marketStatusBadge: document.getElementById('marketStatusBadge'),
         // View title
         heatmapViewTitle: document.getElementById('heatmapViewTitle'),
+        // Flow elements
+        flowContainer: document.getElementById('flowContainer'),
+        flowSentimentValue: document.getElementById('flowSentimentValue'),
+        flowPressureValue: document.getElementById('flowPressureValue'),
+        flowCallPremium: document.getElementById('flowCallPremium'),
+        flowPutPremium: document.getElementById('flowPutPremium'),
+        flowNetPremium: document.getElementById('flowNetPremium'),
+        sweepsBullish: document.getElementById('sweepsBullish'),
+        sweepsBearish: document.getElementById('sweepsBearish'),
+        blocksBullish: document.getElementById('blocksBullish'),
+        blocksBearish: document.getElementById('blocksBearish'),
+        flowPressureBars: document.getElementById('flowPressureBars'),
+        flowUpdate: document.getElementById('flowUpdate'),
+        heatmapContainer: document.querySelector('.heatmap-container'),
     };
 
     // Debug: check if critical elements are found
@@ -295,6 +309,160 @@ async function searchSymbols(query) {
         console.error('Search failed:', error);
         return { results: [] };
     }
+}
+
+// =============================================================================
+// FLOW DATA
+// =============================================================================
+
+let flowData = null;
+
+async function fetchFlowData(symbol) {
+    if (!symbol) return;
+
+    // Show loading
+    if (elements.flowPressureBars) {
+        elements.flowPressureBars.innerHTML = '<div class="flow-loading">Loading flow data...</div>';
+    }
+
+    try {
+        const data = await fetchAPI(`/flow/${symbol}?strike_range=20`);
+        flowData = data;
+        renderFlowData(data);
+    } catch (error) {
+        console.error('Failed to fetch flow data:', error);
+        if (elements.flowPressureBars) {
+            elements.flowPressureBars.innerHTML = '<div class="flow-loading">Failed to load flow data</div>';
+        }
+    }
+}
+
+function renderFlowData(data) {
+    if (!data) return;
+
+    // Update summary stats
+    if (elements.flowSentimentValue) {
+        elements.flowSentimentValue.textContent = data.sentiment?.toUpperCase() || 'NEUTRAL';
+        elements.flowSentimentValue.className = `sentiment-value ${data.sentiment || 'neutral'}`;
+    }
+
+    if (elements.flowPressureValue) {
+        const pct = data.pressure_pct || 0;
+        elements.flowPressureValue.textContent = `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
+        elements.flowPressureValue.className = `sentiment-pressure ${pct > 0 ? 'positive' : pct < 0 ? 'negative' : ''}`;
+    }
+
+    if (elements.flowCallPremium) {
+        elements.flowCallPremium.textContent = formatPremium(data.total_call_premium || 0);
+    }
+    if (elements.flowPutPremium) {
+        elements.flowPutPremium.textContent = formatPremium(data.total_put_premium || 0);
+    }
+    if (elements.flowNetPremium) {
+        const net = data.net_premium || 0;
+        elements.flowNetPremium.textContent = `${net >= 0 ? '+' : ''}${formatPremium(net)}`;
+        elements.flowNetPremium.style.color = net > 0 ? 'var(--accent-green)' : net < 0 ? 'var(--accent-red)' : '';
+    }
+
+    // Sweeps and blocks
+    if (elements.sweepsBullish) {
+        elements.sweepsBullish.textContent = data.sweeps?.bullish || 0;
+    }
+    if (elements.sweepsBearish) {
+        elements.sweepsBearish.textContent = data.sweeps?.bearish || 0;
+    }
+    if (elements.blocksBullish) {
+        elements.blocksBullish.textContent = data.blocks?.bullish || 0;
+    }
+    if (elements.blocksBearish) {
+        elements.blocksBearish.textContent = data.blocks?.bearish || 0;
+    }
+
+    // Render pressure bars
+    renderPressureBars(data.strike_pressure || {}, data.spot_price || 0);
+
+    // Update timestamp
+    if (elements.flowUpdate) {
+        const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '--';
+        elements.flowUpdate.textContent = `Last update: ${time}`;
+    }
+}
+
+function formatPremium(value) {
+    if (Math.abs(value) >= 1e9) {
+        return `$${(value / 1e9).toFixed(2)}B`;
+    } else if (Math.abs(value) >= 1e6) {
+        return `$${(value / 1e6).toFixed(2)}M`;
+    } else if (Math.abs(value) >= 1e3) {
+        return `$${(value / 1e3).toFixed(0)}K`;
+    }
+    return `$${value.toFixed(0)}`;
+}
+
+function renderPressureBars(strikePressure, spotPrice) {
+    if (!elements.flowPressureBars) return;
+
+    // Convert object to sorted array
+    const strikes = Object.entries(strikePressure)
+        .map(([strike, data]) => ({
+            strike: parseFloat(strike),
+            ...data
+        }))
+        .sort((a, b) => b.strike - a.strike);
+
+    if (strikes.length === 0) {
+        elements.flowPressureBars.innerHTML = '<div class="flow-loading">No flow data available</div>';
+        return;
+    }
+
+    // Find max premium for scaling
+    const maxPremium = Math.max(
+        ...strikes.map(s => Math.max(s.call_premium || 0, s.put_premium || 0))
+    );
+
+    // Render bars
+    elements.flowPressureBars.innerHTML = strikes.map(s => {
+        const isAtSpot = Math.abs(s.strike - spotPrice) < (spotPrice * 0.001);
+        const isAboveSpot = s.strike > spotPrice;
+
+        // Calculate bar widths (0-100%)
+        const callWidth = maxPremium > 0 ? ((s.call_premium || 0) / maxPremium) * 100 : 0;
+        const putWidth = maxPremium > 0 ? ((s.put_premium || 0) / maxPremium) * 100 : 0;
+
+        // Pressure percentage styling
+        const pct = s.pressure_pct || 0;
+        const pctClass = pct > 20 ? 'bullish' : pct < -20 ? 'bearish' : 'neutral';
+
+        return `
+            <div class="pressure-bar-row ${isAtSpot ? 'at-spot' : ''}">
+                <span class="pressure-strike ${isAboveSpot ? 'above-spot' : 'below-spot'}">
+                    ${s.strike.toFixed(0)}
+                </span>
+                <div class="pressure-bar-container">
+                    <div class="pressure-bar-left">
+                        <div class="pressure-bar-fill put" style="width: ${putWidth}%"></div>
+                    </div>
+                    <div class="pressure-bar-right">
+                        <div class="pressure-bar-fill call" style="width: ${callWidth}%"></div>
+                    </div>
+                </div>
+                <div class="pressure-stats">
+                    <span class="stat-call">${formatCompact(s.call_premium || 0)}</span>
+                    <span class="stat-put">${formatCompact(s.put_premium || 0)}</span>
+                    <span class="stat-pct ${pctClass}">${pct > 0 ? '+' : ''}${pct.toFixed(0)}%</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function formatCompact(value) {
+    if (Math.abs(value) >= 1e6) {
+        return `$${(value / 1e6).toFixed(1)}M`;
+    } else if (Math.abs(value) >= 1e3) {
+        return `$${(value / 1e3).toFixed(0)}K`;
+    }
+    return `$${value.toFixed(0)}`;
 }
 
 // =============================================================================
@@ -1658,6 +1826,11 @@ async function loadSymbol(symbol, forceRefresh = false) {
             loadAndRenderChart(symbol);
         }
 
+        // If in flow view, also fetch flow data
+        if (currentView === 'flow') {
+            fetchFlowData(symbol);
+        }
+
     } catch (error) {
         console.error('Failed to load symbol:', error);
     }
@@ -1672,17 +1845,29 @@ function switchView(view) {
         btn.classList.toggle('active', btn.dataset.view === view);
     });
 
+    // Handle flow view specially - show/hide containers
+    const isFlowView = view === 'flow';
+    if (elements.heatmapContainer) {
+        elements.heatmapContainer.style.display = isFlowView ? 'none' : '';
+    }
+    if (elements.flowContainer) {
+        elements.flowContainer.style.display = isFlowView ? 'flex' : 'none';
+    }
+
     // Update view title
     if (elements.heatmapViewTitle) {
-        const titles = { gex: 'GEX Heatmap', vex: 'VEX Heatmap', dex: 'DEX Heatmap' };
+        const titles = { gex: 'GEX Heatmap', vex: 'VEX Heatmap', dex: 'DEX Heatmap', flow: 'Options Flow' };
         elements.heatmapViewTitle.textContent = titles[view] || 'GEX Heatmap';
         elements.heatmapViewTitle.className = 'heatmap-view-title';
         if (view === 'vex') elements.heatmapViewTitle.classList.add('vex-view');
         if (view === 'dex') elements.heatmapViewTitle.classList.add('dex-view');
     }
 
-    // Re-render heatmap with new view
-    if (currentData) {
+    // For flow view, fetch and render flow data
+    if (isFlowView && currentSymbol) {
+        fetchFlowData(currentSymbol);
+    } else if (currentData) {
+        // Re-render heatmap with new view
         renderHeatmap(currentData, view);
     }
 }

@@ -3840,3 +3840,335 @@ body.trinity-mode .trinity-container {
 .sidebar-overlay.active {
     display: block;
 }
+
+/* =============================================================================
+   FLOW TAB STYLES
+   ============================================================================= */
+
+.flow-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin: 10px;
+    padding: 16px;
+    overflow: hidden;
+}
+
+.flow-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.flow-sentiment {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sentiment-icon {
+    font-size: 20px;
+}
+
+.sentiment-label {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.sentiment-value {
+    font-weight: 700;
+    font-size: 16px;
+    padding: 4px 12px;
+    border-radius: 4px;
+}
+
+.sentiment-value.bullish {
+    background: rgba(34, 197, 94, 0.2);
+    color: var(--accent-green);
+}
+
+.sentiment-value.bearish {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--accent-red);
+}
+
+.sentiment-value.neutral {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+}
+
+.sentiment-pressure {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.sentiment-pressure.positive {
+    color: var(--accent-green);
+}
+
+.sentiment-pressure.negative {
+    color: var(--accent-red);
+}
+
+.flow-summary {
+    display: flex;
+    gap: 24px;
+}
+
+.flow-stat {
+    text-align: center;
+}
+
+.flow-stat .stat-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.flow-stat .stat-value {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.flow-stat .stat-value.call {
+    color: var(--accent-green);
+}
+
+.flow-stat .stat-value.put {
+    color: var(--accent-red);
+}
+
+.flow-sweep-blocks {
+    display: flex;
+    gap: 16px;
+}
+
+.sweep-stat,
+.block-stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.sweep-icon,
+.block-icon {
+    font-size: 16px;
+}
+
+.sweep-label,
+.block-label {
+    color: var(--text-secondary);
+}
+
+.sweep-bullish,
+.block-bullish {
+    color: var(--accent-green);
+    font-weight: 600;
+}
+
+.sweep-bearish,
+.block-bearish {
+    color: var(--accent-red);
+    font-weight: 600;
+}
+
+/* Flow Pressure Bars */
+.flow-pressure-bars {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 0;
+    min-height: 300px;
+}
+
+.flow-loading {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px;
+    font-size: 14px;
+}
+
+.pressure-bar-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+    padding: 4px 0;
+    transition: background 0.2s;
+}
+
+.pressure-bar-row:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.pressure-bar-row.at-spot {
+    background: rgba(59, 130, 246, 0.15);
+    border-left: 3px solid var(--accent-blue);
+    padding-left: 8px;
+}
+
+.pressure-strike {
+    width: 80px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: right;
+    padding-right: 12px;
+    color: var(--text-primary);
+}
+
+.pressure-strike.above-spot {
+    color: var(--accent-green);
+}
+
+.pressure-strike.below-spot {
+    color: var(--accent-red);
+}
+
+.pressure-bar-container {
+    flex: 1;
+    display: flex;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.pressure-bar-left {
+    display: flex;
+    justify-content: flex-end;
+    width: 50%;
+    background: transparent;
+}
+
+.pressure-bar-right {
+    display: flex;
+    justify-content: flex-start;
+    width: 50%;
+    background: transparent;
+}
+
+.pressure-bar-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.pressure-bar-fill.put {
+    background: linear-gradient(90deg, transparent, var(--accent-red));
+    border-radius: 4px 0 0 4px;
+}
+
+.pressure-bar-fill.call {
+    background: linear-gradient(90deg, var(--accent-green), transparent);
+    border-radius: 0 4px 4px 0;
+}
+
+.pressure-center-line {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-color);
+}
+
+.pressure-stats {
+    width: 160px;
+    display: flex;
+    justify-content: space-between;
+    padding-left: 12px;
+    font-size: 11px;
+}
+
+.pressure-stats .stat-call {
+    color: var(--accent-green);
+}
+
+.pressure-stats .stat-put {
+    color: var(--accent-red);
+}
+
+.pressure-stats .stat-pct {
+    width: 50px;
+    text-align: right;
+    font-weight: 600;
+}
+
+.pressure-stats .stat-pct.bullish {
+    color: var(--accent-green);
+}
+
+.pressure-stats .stat-pct.bearish {
+    color: var(--accent-red);
+}
+
+.pressure-stats .stat-pct.neutral {
+    color: var(--text-muted);
+}
+
+/* Flow Footer */
+.flow-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.flow-source {
+    opacity: 0.7;
+}
+
+/* Flow indicators on heatmap (when not in flow view) */
+.flow-indicator {
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.flow-indicator.bullish {
+    background: var(--accent-green);
+}
+
+.flow-indicator.bearish {
+    background: var(--accent-red);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .flow-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .flow-summary {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .flow-sweep-blocks {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .pressure-stats {
+        display: none;
+    }
+
+    .pressure-strike {
+        width: 60px;
+        font-size: 11px;
+    }
+}

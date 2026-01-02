@@ -48,6 +48,15 @@ from config import (
 )
 from gex_calculator import GEXCalculator, GEXResult
 
+# Massive (Polygon) options flow client
+try:
+    from massive_client import get_massive_client, MassiveClient
+    MASSIVE_AVAILABLE = True
+    print("[OK] Massive options flow client available")
+except ImportError as e:
+    MASSIVE_AVAILABLE = False
+    print(f"[WARNING] Massive client not available: {e}")
+
 
 # =============================================================================
 # AUTHENTICATION CONFIG
@@ -108,57 +117,81 @@ ET = ZoneInfo("America/New_York")
 from database import save_snapshot, get_history, get_king_history
 from regime_tracker import get_regime_tracker, RegimeTracker
 
-# Data source: Tradier or MarketData.app
+# Data source priority: Massive > Tradier > MarketData
 from config import ACTIVE_PROVIDER
 
-# Tradier client (real-time options data)
+# Massive/Polygon (PRIMARY - real-time OPRA data from all 17 exchanges)
+try:
+    from massive_gex_provider import get_massive_provider
+    MASSIVE_GEX_AVAILABLE = True
+    print("[OK] Massive GEX provider available (PRIMARY)")
+except ImportError as e:
+    MASSIVE_GEX_AVAILABLE = False
+    print(f"[WARNING] Massive GEX provider not available: {e}")
+
+# Tradier client (BACKUP - real-time options data)
 try:
     from tradier_client import get_tradier_client
     TRADIER_AVAILABLE = True
 except ImportError:
     TRADIER_AVAILABLE = False
-    print("[ERROR] Tradier client not available")
+    print("[WARNING] Tradier client not available (backup)")
 
-# MarketData.app (real Greeks from OPRA)
+# MarketData.app (BACKUP - real Greeks from OPRA)
 try:
     from marketdata_client import get_marketdata_client
     MARKETDATA_AVAILABLE = True
 except ImportError:
     MARKETDATA_AVAILABLE = False
-    print("[ERROR] MarketData.app not available - install aiohttp")
+    print("[WARNING] MarketData.app not available")
 
 
 _options_client = None
 _options_client_name = None
 
 # Check if any data provider is available
-DATA_PROVIDER_AVAILABLE = TRADIER_AVAILABLE or MARKETDATA_AVAILABLE
+DATA_PROVIDER_AVAILABLE = MASSIVE_GEX_AVAILABLE or TRADIER_AVAILABLE or MARKETDATA_AVAILABLE
 
 def get_options_client():
-    """Get the active options data client based on config."""
+    """Get the active options data client based on priority: Massive > Tradier > MarketData."""
     global _options_client, _options_client_name
 
-    # Return cached client if already created for same provider
-    if _options_client is not None and _options_client_name == ACTIVE_PROVIDER:
+    # Return cached client if already created
+    if _options_client is not None:
         return _options_client
 
-    if ACTIVE_PROVIDER == "tradier" and TRADIER_AVAILABLE:
-        print("[OK] Data provider: Tradier (REAL-TIME)")
+    # Priority 1: Massive (best - real-time OPRA from all exchanges)
+    if MASSIVE_GEX_AVAILABLE:
+        print("[OK] Data provider: Massive/Polygon (REAL-TIME OPRA)")
+        _options_client = get_massive_provider()
+        _options_client_name = "massive"
+        return _options_client
+
+    # Priority 2: Tradier (backup)
+    if TRADIER_AVAILABLE:
+        print("[OK] Data provider: Tradier (BACKUP)")
         _options_client = get_tradier_client()
         _options_client_name = "tradier"
-    elif MARKETDATA_AVAILABLE:
-        print("[OK] Data provider: MarketData.app")
+        return _options_client
+
+    # Priority 3: MarketData.app (backup)
+    if MARKETDATA_AVAILABLE:
+        print("[OK] Data provider: MarketData.app (BACKUP)")
         _options_client = get_marketdata_client()
         _options_client_name = "marketdata"
-    else:
-        raise RuntimeError("No options data provider available")
+        return _options_client
 
-    return _options_client
+    raise RuntimeError("No options data provider available")
 
 
 def get_provider_name():
     """Get display name of active provider."""
-    return "Tradier" if ACTIVE_PROVIDER == "tradier" else "MarketData"
+    if _options_client_name == "massive":
+        return "Massive (OPRA)"
+    elif _options_client_name == "tradier":
+        return "Tradier"
+    else:
+        return "MarketData"
 
 # Quiver Quant: Congress trading, dark pool, insider trading, WSB sentiment
 try:
@@ -1114,28 +1147,55 @@ async def get_alerts(
 # ORDER FLOW ENDPOINTS
 # =============================================================================
 @app.get("/flow/{symbol}")
-async def get_flow(symbol: str):
+async def get_flow(
+    symbol: str,
+    strike_range: int = Query(default=20, description="Number of strikes above/below spot to include")
+):
     """
     Get options flow summary for a symbol.
-    Requires UNUSUAL_WHALES_API_KEY environment variable.
-    Returns flow summary with bullish/bearish premium and large trades.
+    Uses Massive (Polygon) if available, falls back to Unusual Whales.
+    Returns flow summary with bullish/bearish premium and pressure at each strike.
     """
     symbol = symbol.upper()
 
-    if not ORDERFLOW_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Order flow not available. Set UNUSUAL_WHALES_API_KEY environment variable."
-        )
+    # Try Massive first (preferred)
+    if MASSIVE_AVAILABLE:
+        # Get current spot price from cache
+        spot_price = 0
+        cached = cache.get(symbol)
+        if cached:
+            spot_price = cached.spot_price
 
-    from orderflow_client import get_flow_client
-    client = get_flow_client()
+        try:
+            client = get_massive_client()
+            summary = await client.get_flow_summary(
+                symbol=symbol,
+                spot_price=spot_price,
+                strike_range=strike_range
+            )
+            result = summary.to_dict()
+            result["data_source"] = "massive"
+            return result
+        except Exception as e:
+            print(f"[Massive] Error: {e} - trying Unusual Whales fallback")
 
-    try:
-        summary = await client.get_flow_summary(symbol)
-        return summary.to_dict()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching flow: {str(e)}")
+    # Fallback to Unusual Whales
+    if ORDERFLOW_AVAILABLE:
+        from orderflow_client import get_flow_client
+        client = get_flow_client()
+
+        try:
+            summary = await client.get_flow_summary(symbol)
+            result = summary.to_dict()
+            result["data_source"] = "unusual_whales"
+            return result
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching flow: {str(e)}")
+
+    raise HTTPException(
+        status_code=503,
+        detail="Options flow not available. Configure MASSIVE_API_KEY or UNUSUAL_WHALES_API_KEY."
+    )
 
 
 @app.get("/flow/{symbol}/levels")
