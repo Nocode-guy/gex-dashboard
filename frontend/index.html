@@ -82,6 +82,9 @@
                 <button class="btn-replay" id="btnEnterPlayback" title="Replay historical data">
                     <span class="replay-icon">⏮</span>
                 </button>
+                <button class="btn-help" id="btnCheatSheet" title="Trading Cheat Sheet">
+                    <span class="help-icon">📖</span>
+                </button>
             </div>
         </div>
 
@@ -346,6 +349,130 @@
                 <div class="walls-legend">
                     <span class="legend-item"><span class="legend-color call"></span> Call GEX</span>
                     <span class="legend-item"><span class="legend-color put"></span> Put GEX</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cheat Sheet Slide-out Panel -->
+        <div class="cheatsheet-overlay" id="cheatsheetOverlay">
+            <div class="cheatsheet-panel" id="cheatsheetPanel">
+                <div class="cheatsheet-header">
+                    <h2>📖 Trading Cheat Sheet</h2>
+                    <button class="btn-close-cheatsheet" id="btnCloseCheatsheet">&times;</button>
+                </div>
+                <div class="cheatsheet-content">
+                    <!-- GEX Basics -->
+                    <div class="cheat-section">
+                        <h3>⚡ GEX Basics</h3>
+                        <div class="cheat-card positive">
+                            <span class="cheat-label">Positive GEX</span>
+                            <span class="cheat-meaning">Mean reversion mode</span>
+                            <span class="cheat-action">Fade extremes, buy dips, sell rips</span>
+                        </div>
+                        <div class="cheat-card negative">
+                            <span class="cheat-label">Negative GEX</span>
+                            <span class="cheat-meaning">Trending/volatile mode</span>
+                            <span class="cheat-action">Follow momentum, don't fade</span>
+                        </div>
+                    </div>
+
+                    <!-- Key Levels -->
+                    <div class="cheat-section">
+                        <h3>📍 Key Levels</h3>
+                        <div class="cheat-card king">
+                            <span class="cheat-label">👑 KING</span>
+                            <span class="cheat-meaning">Highest absolute GEX — strongest magnet</span>
+                            <span class="cheat-action">Price gravitates here. Trade toward it.</span>
+                        </div>
+                        <div class="cheat-card zero-gamma">
+                            <span class="cheat-label">⚖️ ZERO GAMMA</span>
+                            <span class="cheat-meaning">Dealer flip point — regime change</span>
+                            <span class="cheat-action">Above = stable | Below = volatile</span>
+                        </div>
+                        <div class="cheat-card magnet">
+                            <span class="cheat-label">🧲 MAGNET</span>
+                            <span class="cheat-meaning">High positive GEX — price target</span>
+                            <span class="cheat-action">Expect price to drift toward this level</span>
+                        </div>
+                        <div class="cheat-card gatekeeper">
+                            <span class="cheat-label">🚧 GATEKEEPER</span>
+                            <span class="cheat-meaning">Must break for trend continuation</span>
+                            <span class="cheat-action">Rejection = reversal | Break = acceleration</span>
+                        </div>
+                        <div class="cheat-card accelerator">
+                            <span class="cheat-label">🔥 ACCELERATOR</span>
+                            <span class="cheat-meaning">High negative GEX — vol expansion</span>
+                            <span class="cheat-action">If price enters → fast move, don't fight it</span>
+                        </div>
+                    </div>
+
+                    <!-- Dealer Status -->
+                    <div class="cheat-section">
+                        <h3>🏦 Dealer Status</h3>
+                        <div class="cheat-card buying">
+                            <span class="cheat-label">Buying Dips</span>
+                            <span class="cheat-meaning">Dealers short delta — they buy weakness</span>
+                            <span class="cheat-action">Bullish. Dips get bought. Look for longs.</span>
+                        </div>
+                        <div class="cheat-card selling">
+                            <span class="cheat-label">Selling Rallies</span>
+                            <span class="cheat-meaning">Dealers long delta — they sell strength</span>
+                            <span class="cheat-action">Bearish. Rallies get sold. Fade rips.</span>
+                        </div>
+                    </div>
+
+                    <!-- Quick Plays -->
+                    <div class="cheat-section">
+                        <h3>🎯 Quick Plays</h3>
+                        <div class="cheat-play">
+                            <span class="play-setup">Price at King + Positive GEX</span>
+                            <span class="play-action">→ Expect chop/consolidation. Range trade.</span>
+                        </div>
+                        <div class="cheat-play">
+                            <span class="play-setup">Price breaks below Zero Gamma</span>
+                            <span class="play-action">→ Volatility incoming. Trail stops, ride trend.</span>
+                        </div>
+                        <div class="cheat-play">
+                            <span class="play-setup">Price near Magnet + "Buying Dips"</span>
+                            <span class="play-action">→ Strong support. Buy the dip with tight stop.</span>
+                        </div>
+                        <div class="cheat-play">
+                            <span class="play-setup">Dealer Flip Warning showing</span>
+                            <span class="play-action">→ Caution! Regime change possible. Reduce size.</span>
+                        </div>
+                        <div class="cheat-play">
+                            <span class="play-setup">Price enters Accelerator zone</span>
+                            <span class="play-action">→ Don't fade! Go with momentum or stay flat.</span>
+                        </div>
+                    </div>
+
+                    <!-- Warning Signs -->
+                    <div class="cheat-section">
+                        <h3>⚠️ Warning Signs</h3>
+                        <div class="cheat-warning">
+                            <span class="warning-trigger">FLIP ZONE</span>
+                            <span class="warning-meaning">Price at Zero Gamma — could flip regime</span>
+                        </div>
+                        <div class="cheat-warning">
+                            <span class="warning-trigger">Dealer Delta Flip</span>
+                            <span class="warning-meaning">Dealers reversed positioning — momentum shift</span>
+                        </div>
+                        <div class="cheat-warning">
+                            <span class="warning-trigger">Δ GEX dropping fast</span>
+                            <span class="warning-meaning">Support weakening — be ready for breakdown</span>
+                        </div>
+                    </div>
+
+                    <!-- Color Guide -->
+                    <div class="cheat-section">
+                        <h3>🎨 Color Guide</h3>
+                        <div class="color-guide">
+                            <div class="color-item"><span class="color-dot green"></span> Green = Support / Bullish</div>
+                            <div class="color-item"><span class="color-dot red"></span> Red = Resistance / Acceleration</div>
+                            <div class="color-item"><span class="color-dot yellow"></span> Yellow = King / Magnet (key level)</div>
+                            <div class="color-item"><span class="color-dot blue"></span> Blue = Neutral / Info</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

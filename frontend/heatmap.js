@@ -3707,6 +3707,35 @@ function setupEventHandlers() {
             }
         });
     }
+
+    // Cheat Sheet panel toggle
+    const btnCheatSheet = document.getElementById('btnCheatSheet');
+    const cheatsheetOverlay = document.getElementById('cheatsheetOverlay');
+    const btnCloseCheatsheet = document.getElementById('btnCloseCheatsheet');
+
+    if (btnCheatSheet && cheatsheetOverlay) {
+        btnCheatSheet.addEventListener('click', () => {
+            cheatsheetOverlay.classList.add('show');
+        });
+
+        btnCloseCheatsheet?.addEventListener('click', () => {
+            cheatsheetOverlay.classList.remove('show');
+        });
+
+        // Close on overlay click (outside panel)
+        cheatsheetOverlay.addEventListener('click', (e) => {
+            if (e.target === cheatsheetOverlay) {
+                cheatsheetOverlay.classList.remove('show');
+            }
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && cheatsheetOverlay.classList.contains('show')) {
+                cheatsheetOverlay.classList.remove('show');
+            }
+        });
+    }
 }
 
 // Render the All Tickers dropdown menu

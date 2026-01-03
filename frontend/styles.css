@@ -5883,3 +5883,274 @@ body.trinity-mode .trinity-container {
     font-size: 11px;
     color: var(--accent-yellow);
 }
+
+/* =============================================================================
+   CHEAT SHEET PANEL
+   ============================================================================= */
+
+.btn-help {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-help:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-blue);
+}
+
+.btn-help .help-icon {
+    font-size: 16px;
+}
+
+/* Overlay */
+.cheatsheet-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    display: none;
+    justify-content: flex-end;
+}
+
+.cheatsheet-overlay.show {
+    display: flex;
+}
+
+/* Panel */
+.cheatsheet-panel {
+    width: 400px;
+    max-width: 90vw;
+    height: 100%;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    animation: slide-in-right 0.3s ease;
+    overflow: hidden;
+}
+
+@keyframes slide-in-right {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+.cheatsheet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.cheatsheet-header h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.btn-close-cheatsheet {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0 8px;
+    line-height: 1;
+}
+
+.btn-close-cheatsheet:hover {
+    color: var(--text-primary);
+}
+
+.cheatsheet-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+}
+
+/* Sections */
+.cheat-section {
+    margin-bottom: 24px;
+}
+
+.cheat-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 12px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Cards */
+.cheat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    border-left: 3px solid var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.cheat-card .cheat-label {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.cheat-card .cheat-meaning {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.cheat-card .cheat-action {
+    font-size: 12px;
+    color: var(--accent-blue);
+    font-weight: 500;
+}
+
+/* Card Colors */
+.cheat-card.positive {
+    border-left-color: var(--accent-green);
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.cheat-card.positive .cheat-label { color: var(--accent-green); }
+
+.cheat-card.negative {
+    border-left-color: var(--accent-red);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.cheat-card.negative .cheat-label { color: var(--accent-red); }
+
+.cheat-card.king {
+    border-left-color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+}
+
+.cheat-card.king .cheat-label { color: #fbbf24; }
+
+.cheat-card.zero-gamma {
+    border-left-color: var(--accent-blue);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.cheat-card.zero-gamma .cheat-label { color: var(--accent-blue); }
+
+.cheat-card.magnet {
+    border-left-color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+}
+
+.cheat-card.magnet .cheat-label { color: #fbbf24; }
+
+.cheat-card.gatekeeper {
+    border-left-color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.cheat-card.gatekeeper .cheat-label { color: #8b5cf6; }
+
+.cheat-card.accelerator {
+    border-left-color: var(--accent-red);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.cheat-card.accelerator .cheat-label { color: var(--accent-red); }
+
+.cheat-card.buying {
+    border-left-color: var(--accent-green);
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.cheat-card.buying .cheat-label { color: var(--accent-green); }
+
+.cheat-card.selling {
+    border-left-color: var(--accent-red);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.cheat-card.selling .cheat-label { color: var(--accent-red); }
+
+/* Quick Plays */
+.cheat-play {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.cheat-play .play-setup {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cheat-play .play-action {
+    font-size: 12px;
+    color: var(--accent-blue);
+}
+
+/* Warnings */
+.cheat-warning {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgba(251, 191, 36, 0.1);
+    border-left: 3px solid var(--accent-yellow);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.cheat-warning .warning-trigger {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-yellow);
+    min-width: 120px;
+}
+
+.cheat-warning .warning-meaning {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Color Guide */
+.color-guide {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.color-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.color-dot.green { background: var(--accent-green); }
+.color-dot.red { background: var(--accent-red); }
+.color-dot.yellow { background: #fbbf24; }
+.color-dot.blue { background: var(--accent-blue); }
