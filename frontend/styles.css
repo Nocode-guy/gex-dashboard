@@ -2429,6 +2429,71 @@ body.light-mode .strike-col {
     border-left-color: var(--accent-blue);
 }
 
+/* "What Happens If" tooltip - shows on hover */
+.zone-tooltip {
+    display: none;
+    font-size: 11px;
+    color: var(--text-primary);
+    margin-top: 6px;
+    padding: 8px 10px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 6px;
+    line-height: 1.4;
+}
+
+.zone-item:hover .zone-tooltip {
+    display: block;
+    animation: tooltip-fade-in 0.2s ease;
+}
+
+@keyframes tooltip-fade-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.zone-tooltip .tooltip-label {
+    display: inline-block;
+    font-weight: 700;
+    color: var(--accent-blue);
+    margin-right: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Color-code tooltips by zone type */
+.zone-item.king:hover .zone-tooltip,
+.zone-item.magnet-highlight:hover .zone-tooltip {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.1) 100%);
+    border-color: rgba(251, 191, 36, 0.4);
+}
+
+.zone-item.king:hover .zone-tooltip .tooltip-label,
+.zone-item.magnet-highlight:hover .zone-tooltip .tooltip-label {
+    color: var(--accent-yellow);
+}
+
+.zone-item.accelerator-highlight:hover .zone-tooltip,
+.zone-item.negative:hover .zone-tooltip {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.1) 100%);
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
+.zone-item.accelerator-highlight:hover .zone-tooltip .tooltip-label,
+.zone-item.negative:hover .zone-tooltip .tooltip-label {
+    color: var(--accent-red);
+}
+
+.zone-item.support-highlight:hover .zone-tooltip {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%);
+    border-color: rgba(34, 197, 94, 0.4);
+}
+
+.zone-item.support-highlight:hover .zone-tooltip .tooltip-label {
+    color: var(--accent-green);
+}
+
 /* New trading context badges */
 .trading-context.ctx-king {
     background: linear-gradient(135deg, #fbbf24, #f59e0b);

@@ -1731,30 +1731,51 @@ function renderZones(data) {
         // Trading context badge with trading bias hint
         let contextBadge = '';
         let tradingBias = '';
+        let whatHappensIf = '';
+
+        // Find next significant zones for "What Happens If" tooltips
+        const currentIdx = zones.indexOf(zone);
+        const zonesBelow = zones.slice(currentIdx + 1).filter(z => z.strike < zone.strike);
+        const zonesAbove = zones.slice(0, currentIdx).filter(z => z.strike > zone.strike);
+        const nextBelow = zonesBelow[0];
+        const nextAbove = zonesAbove[zonesAbove.length - 1];
 
         if (isMagnet) {
             contextBadge = `<span class="trading-context ctx-magnet-primary">MAGNET</span>`;
             tradingBias = zone.strike > spotPrice
                 ? 'Above = drift higher | Below = snap back up'
                 : 'Below = drift lower | Above = snap back down';
+            whatHappensIf = zone.strike > spotPrice
+                ? `If price reaches ${zone.strike.toFixed(0)} → expect stall/reversal`
+                : `If price holds above ${zone.strike.toFixed(0)} → grind higher likely`;
         } else if (isKing) {
             contextBadge = `<span class="trading-context ctx-king">KING</span>`;
             tradingBias = 'Strongest level — expect price to gravitate here';
+            whatHappensIf = `If price holds above King → grind higher likely | Below → magnet pull down`;
         } else if (isGatekeeper) {
             contextBadge = `<span class="trading-context ctx-gatekeeper">GATEKEEPER</span>`;
             tradingBias = 'Break required for trend — rejection = reversal';
+            const target = zone.strike > spotPrice ? nextAbove : nextBelow;
+            whatHappensIf = zone.strike > spotPrice
+                ? `If price breaks ${zone.strike.toFixed(0)} → trend acceleration to ${target ? target.strike.toFixed(0) : 'next level'}`
+                : `If price loses ${zone.strike.toFixed(0)} → fast move to ${target ? target.strike.toFixed(0) : 'next support'}`;
         } else if (isAccelerator) {
             contextBadge = `<span class="trading-context ctx-acceleration">ACCELERATOR</span>`;
             tradingBias = 'Fast move if lost — vol expansion zone';
+            const target = nextBelow || nextAbove;
+            whatHappensIf = `If price loses ${zone.strike.toFixed(0)} → expect fast move to ${target ? target.strike.toFixed(0) : 'next level'}`;
         } else if (isResistance) {
             contextBadge = `<span class="trading-context ctx-resistance">RESISTANCE</span>`;
             tradingBias = 'Above = breakout potential | At = expect fade';
+            whatHappensIf = `If price breaks ${zone.strike.toFixed(0)} → breakout, target ${nextAbove ? nextAbove.strike.toFixed(0) : 'higher'} | Rejection → fade back`;
         } else if (isSupport) {
             contextBadge = `<span class="trading-context ctx-support">SUPPORT</span>`;
             tradingBias = 'Below = breakdown risk | At = expect bounce';
+            whatHappensIf = `If price holds ${zone.strike.toFixed(0)} → bounce likely | Break → fast to ${nextBelow ? nextBelow.strike.toFixed(0) : 'lower'}`;
         } else if (!isPositive) {
             contextBadge = `<span class="trading-context ctx-vol-zone">VOL ZONE</span>`;
             tradingBias = 'Unstable — momentum risk both ways';
+            whatHappensIf = `If price enters ${zone.strike.toFixed(0)} zone → expect volatility expansion, moves amplified`;
         } else if (ctx.label) {
             contextBadge = `<span class="trading-context ${ctx.class}">${ctx.label}</span>`;
         }
@@ -1772,7 +1793,7 @@ function renderZones(data) {
         }
 
         return `
-            <div class="zone-item ${itemClasses}">
+            <div class="zone-item ${itemClasses}" ${whatHappensIf ? `data-tooltip="${whatHappensIf}"` : ''}>
                 <div class="zone-header">
                     <span class="zone-strike">${formatPrice(zone.strike)}</span>
                     <span class="zone-role ${roleClasses}">${roleLabel}</span>
@@ -1785,6 +1806,7 @@ function renderZones(data) {
                     </span>
                 </div>
                 ${tradingBias ? `<div class="zone-bias">${tradingBias}</div>` : ''}
+                ${whatHappensIf ? `<div class="zone-tooltip"><span class="tooltip-label">What if?</span> ${whatHappensIf}</div>` : ''}
                 <div class="zone-strength">
                     <div class="zone-strength-bar ${isPositive ? 'positive' : 'negative'} ${isMagnet ? 'magnet-bar' : ''}"
                          style="width: ${zone.strength * 100}%"></div>
