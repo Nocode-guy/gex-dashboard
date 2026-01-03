@@ -171,6 +171,17 @@ class FlowSummary:
             "net_premium": round(self.net_premium, 2),
             "pressure_pct": round(self.pressure_pct, 1),
             "sentiment": self.sentiment,
+            # Flat fields for frontend
+            "call_sweeps": self.sweeps_bullish,
+            "put_sweeps": self.sweeps_bearish,
+            "call_blocks": self.blocks_bullish,
+            "put_blocks": self.blocks_bearish,
+            # Velocity and rate of change (placeholder - requires historical tracking)
+            "velocity_1m": 0,
+            "roc_1m": 0,
+            "roc_5m": 0,
+            "roc_10m": 0,
+            # Nested format for backwards compat
             "sweeps": {
                 "bullish": self.sweeps_bullish,
                 "bearish": self.sweeps_bearish
@@ -196,14 +207,31 @@ class FlowSummary:
             "recent_trades": [
                 {
                     "strike": t.strike,
-                    "type": t.option_type,
+                    "contract_type": t.option_type,
+                    "trade_type": "sweep" if t.is_sweep else ("block" if t.is_block else "normal"),
                     "price": t.price,
-                    "size": t.size,
+                    "contracts": t.size,
                     "premium": round(t.premium, 2),
-                    "is_sweep": t.is_sweep,
-                    "is_block": t.is_block,
-                    "sentiment": t.sentiment,
-                    "time": t.timestamp.strftime("%H:%M:%S")
+                    "expiration": getattr(t, 'expiration', '--'),
+                    "symbol": self.symbol,
+                    "timestamp": t.timestamp.isoformat(),
+                    "sentiment": t.sentiment
+                }
+                for t in self.recent_trades[-20:]  # Last 20 trades
+            ],
+            # Alias for frontend compatibility
+            "trades": [
+                {
+                    "strike": t.strike,
+                    "contract_type": t.option_type,
+                    "trade_type": "sweep" if t.is_sweep else ("block" if t.is_block else "normal"),
+                    "price": t.price,
+                    "contracts": t.size,
+                    "premium": round(t.premium, 2),
+                    "expiration": getattr(t, 'expiration', '--'),
+                    "symbol": self.symbol,
+                    "timestamp": t.timestamp.isoformat(),
+                    "sentiment": t.sentiment
                 }
                 for t in self.recent_trades[-20:]  # Last 20 trades
             ]
@@ -509,3 +537,4 @@ if __name__ == "__main__":
         await client.close()
 
     asyncio.run(test())
+# TRIGGER_RELOAD

@@ -57,6 +57,9 @@ except ImportError as e:
     MASSIVE_AVAILABLE = False
     print(f"[WARNING] Massive client not available: {e}")
 
+# Live options trades streaming disabled (requires Polygon WebSocket plan)
+OPTIONS_WS_AVAILABLE = False
+
 
 # =============================================================================
 # AUTHENTICATION CONFIG
@@ -668,7 +671,9 @@ async def lifespan(app: FastAPI):
 
     await refresh_manager.refresh_all()
     refresh_manager.start()
+
     yield
+
     # Shutdown
     refresh_manager.stop()
     print("GEX Dashboard stopped")

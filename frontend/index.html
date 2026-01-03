@@ -5,57 +5,176 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GEX Dashboard</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <!-- Lightweight Charts for price chart -->
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
     <div class="app">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <h1>GEX Dashboard</h1>
-                <span class="status-badge" id="connectionStatus">Connecting...</span>
+        <!-- Top Bar: Ticker Pills -->
+        <div class="ticker-bar">
+            <div class="ticker-bar-left">
+                <div class="all-tickers-dropdown">
+                    <button class="all-tickers-btn" id="btnAllTickers">
+                        <span class="hamburger">☰</span>
+                        All Tickers
+                        <span class="ticker-count" id="symbolCount">0</span>
+                    </button>
+                    <div class="all-tickers-menu" id="allTickersMenu">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
             </div>
-            <div class="header-center">
+            <div class="ticker-pills-container">
+                <div class="ticker-pills" id="symbolTabs">
+                    <!-- Ticker pills populated by JS -->
+                </div>
+            </div>
+            <div class="ticker-bar-right">
                 <div class="symbol-search">
-                    <input type="text" id="symbolInput" placeholder="Search name or symbol..." autocomplete="off">
-                    <button id="btnAddSymbol" class="btn-add">+</button>
+                    <input type="text" id="symbolInput" placeholder="+ Add symbol" autocomplete="off">
                     <div class="search-dropdown" id="searchDropdown"></div>
                 </div>
             </div>
-            <div class="header-right">
-                <div class="datetime-display">
-                    <span class="current-date" id="currentDate">--</span>
-                    <span class="current-time" id="currentTime">--:--:--</span>
+        </div>
+
+        <!-- Control Bar -->
+        <div class="control-bar">
+            <div class="control-left">
+                <div class="metric-toggles">
+                    <button class="btn-metric active" data-view="gex">⚡ GEX</button>
+                    <button class="btn-metric" data-view="vex">📈 VEX</button>
+                    <button class="btn-metric" data-view="dex">Δ DEX</button>
+                    <button class="btn-metric" data-view="flow">📊 Flow</button>
                 </div>
-                <div class="refresh-controls">
-                    <label>Refresh:</label>
-                    <div class="btn-group">
-                        <button class="btn-interval" data-interval="1">1m</button>
-                        <button class="btn-interval active" data-interval="5">5m</button>
-                        <button class="btn-interval" data-interval="15">15m</button>
-                        <button class="btn-interval" data-interval="30">30m</button>
-                        <button class="btn-interval" data-interval="60">60m</button>
+            </div>
+
+            <div class="control-center">
+                <button class="nav-arrow" id="btnPrevSymbol">‹</button>
+                <div class="symbol-display">
+                    <span class="symbol-badge" id="symbolName">SPX</span>
+                    <span class="spot-price" id="spotPrice">$0.00</span>
+                    <span class="price-change positive" id="priceChange">+0.00 (+0.00%)</span>
+                </div>
+                <button class="nav-arrow" id="btnNextSymbol">›</button>
+            </div>
+
+            <div class="control-right">
+                <button class="btn-icon" id="btnWallsToggle" title="Put/Call Walls">📊</button>
+                <button class="btn-icon" id="btnCenterSpot" title="Center on Spot">◎</button>
+                <button class="btn-icon" id="btnCenterKing" title="Center on King">👑</button>
+                <button class="btn-icon" id="btnThemeToggle" title="Theme">
+                    <span id="themeIcon">☀</span>
+                </button>
+                <div class="interval-dropdown">
+                    <button class="btn-interval-select" id="btnIntervalSelect">5m ▾</button>
+                    <div class="interval-menu" id="intervalMenu">
+                        <button class="interval-option" data-interval="1">1m</button>
+                        <button class="interval-option active" data-interval="5">5m</button>
+                        <button class="interval-option" data-interval="15">15m</button>
+                        <button class="interval-option" data-interval="30">30m</button>
+                        <button class="interval-option" data-interval="60">60m</button>
                     </div>
                 </div>
-                <span class="last-update" id="lastUpdate">Last: --:--:--</span>
-                <button class="btn-logout" id="btnLogout" title="Sign Out">Logout</button>
+                <div class="live-indicator" id="liveIndicator">
+                    <span class="live-dot"></span>
+                    <span class="live-text">Live</span>
+                    <span class="live-time" id="currentTime">--:--:--</span>
+                </div>
+                <button class="btn-replay" id="btnEnterPlayback" title="Replay historical data">
+                    <span class="replay-icon">⏮</span>
+                </button>
             </div>
-        </header>
+        </div>
 
-        <!-- Symbol Tabs & View Mode Toggle -->
-        <div class="tabs-bar">
-            <nav class="symbol-tabs" id="symbolTabs">
-                <!-- Populated by JS -->
-            </nav>
-            <div class="view-mode-toggle">
-                <button class="btn-view-mode active" data-mode="single" title="Single Symbol View">
-                    <span class="icon">▣</span> Single
-                </button>
-                <button class="btn-view-mode" data-mode="trinity" title="Trinity Mode - 3 Symbols">
-                    <span class="icon">☰</span> Trinity
+        <!-- Replay Panel (dropdown, hidden by default) -->
+        <div class="replay-panel" id="playbackBar" style="display: none;">
+            <div class="replay-timeline-container">
+                <span class="timeline-label">Open</span>
+                <div class="replay-timeline">
+                    <input type="range" id="playbackSlider" class="replay-slider" min="0" max="100" value="0">
+                    <div class="timeline-markers">
+                        <span class="marker" style="left: 0%">9:30</span>
+                        <span class="marker" style="left: 50%">Noon</span>
+                        <span class="marker" style="left: 100%">4:00</span>
+                    </div>
+                </div>
+                <span class="timeline-label">Close</span>
+            </div>
+            <div class="replay-controls-row">
+                <div class="replay-date-time">
+                    <input type="date" id="playbackDatePicker" class="replay-date-input">
+                    <input type="text" id="playbackTimeInput" class="replay-time-input" value="09:30:00" readonly>
+                </div>
+                <div class="replay-controls">
+                    <button class="replay-btn" id="btnPlaybackPrev" title="Skip to start">⏮</button>
+                    <button class="replay-btn" id="btnPlaybackBack" title="Step back">◀</button>
+                    <button class="replay-btn replay-play" id="btnPlaybackToggle" title="Play/Pause">▶</button>
+                    <button class="replay-btn" id="btnPlaybackForward" title="Step forward">▶</button>
+                    <button class="replay-btn" id="btnPlaybackNext" title="Skip to end">⏭</button>
+                </div>
+                <div class="replay-speed">
+                    <select id="playbackSpeed" class="replay-speed-select">
+                        <option value="0.5">0.5x</option>
+                        <option value="1">1x</option>
+                        <option value="2" selected>2x</option>
+                        <option value="4">4x</option>
+                    </select>
+                </div>
+                <div class="replay-snapshot">
+                    <span class="snapshot-label">SNAPSHOT</span>
+                    <span class="snapshot-time" id="playbackTime">--:--:-- AM</span>
+                </div>
+                <button class="btn-exit-replay" id="btnPlaybackExit">
+                    <span class="exit-dot"></span>
+                    Exit Replay
                 </button>
             </div>
+        </div>
+
+        <!-- Metrics Bar -->
+        <div class="metrics-bar">
+            <div class="metric-item">
+                <span class="metric-label">Net GEX</span>
+                <span class="metric-value" id="netGex">$0.0B</span>
+                <span class="metric-delta" id="deltaGexOpen">--</span>
+            </div>
+            <div class="metric-divider"></div>
+            <div class="metric-item">
+                <span class="metric-label">King</span>
+                <span class="metric-value king" id="kingNode">--</span>
+                <span class="metric-sub" id="kingGex">--</span>
+            </div>
+            <div class="metric-divider"></div>
+            <div class="metric-item">
+                <span class="metric-label">Zero Gamma</span>
+                <span class="metric-value" id="zeroGamma">--</span>
+                <span class="metric-sub" id="zeroGammaDistance">--</span>
+            </div>
+            <div class="metric-divider"></div>
+            <div class="metric-item">
+                <span class="metric-label">To King</span>
+                <span class="metric-value" id="kingDistance">--</span>
+            </div>
+            <div class="metric-divider"></div>
+            <!-- Dealer Status -->
+            <div class="dealer-status" id="dealerStatus">
+                <span class="dealer-label">Dealers:</span>
+                <span class="dealer-action" id="dealerAction">--</span>
+            </div>
+            <div class="metric-divider"></div>
+            <div class="pressure-gauge-mini">
+                <span class="gauge-label">Gamma:</span>
+                <div class="gauge-bar">
+                    <div class="gauge-fill" id="pressureFill"></div>
+                    <div class="gauge-marker" id="pressureMarker"></div>
+                </div>
+                <span class="gauge-text" id="pressureText">NEUTRAL</span>
+            </div>
+        </div>
+
+        <!-- Dealer Flip Warning Banner (hidden by default) -->
+        <div class="dealer-warning" id="dealerWarning" style="display: none;">
+            <span class="warning-icon">⚠️</span>
+            <span class="warning-text" id="dealerWarningText">Dealer Flip Risk</span>
         </div>
 
         <!-- Main Content -->
@@ -64,445 +183,172 @@
             <div class="opex-warning" id="opexWarning" style="display: none;">
                 <span class="warning-icon">⚠️</span>
                 <span>OPEX Week - Near-term nodes may be less reliable</span>
-                <span class="opex-date" id="opexDate"></span>
-            </div>
-
-            <!-- Regime & Alerts Bar -->
-            <div class="regime-bar" id="regimeBar">
-                <div class="regime-info">
-                    <span class="regime-label">VIX:</span>
-                    <span class="regime-vix" id="regimeVix">--</span>
-                    <span class="regime-badge" id="regimeBadge">NORMAL</span>
-                    <span class="reliability-badge" id="reliabilityBadge">HIGH</span>
-                    <span class="event-badge" id="eventBadge" style="display: none;">EVENT</span>
-                    <span class="market-status-badge" id="marketStatusBadge" style="display: none;">MARKET CLOSED</span>
-                </div>
-                <div class="pressure-gauge">
-                    <span class="pressure-label">Gamma:</span>
-                    <div class="pressure-meter">
-                        <div class="pressure-fill" id="pressureFill"></div>
-                        <div class="pressure-marker" id="pressureMarker"></div>
-                    </div>
-                    <span class="pressure-text" id="pressureText">NEUTRAL</span>
-                </div>
-                <div class="delta-info">
-                    <span class="delta-item" id="deltaGex">ΔGEX: --</span>
-                    <span class="delta-item" id="deltaVex">ΔVEX: --</span>
-                    <span class="delta-item" id="deltaDex">ΔDEX: --</span>
-                </div>
-                <div class="alerts-indicator" id="alertsIndicator" style="display: none;">
-                    <span class="alert-icon">🔔</span>
-                    <span class="alert-count" id="alertCount">0</span>
-                </div>
-            </div>
-
-            <!-- Playback Controls (hidden by default) -->
-            <div class="playback-bar" id="playbackBar" style="display: none;">
-                <div class="playback-controls">
-                    <button class="playback-btn" id="btnPlaybackPrev" title="Previous snapshot">◀◀</button>
-                    <button class="playback-btn" id="btnPlaybackBack" title="Step back">◀</button>
-                    <button class="playback-btn playback-main" id="btnPlaybackToggle" title="Play/Pause">▶</button>
-                    <button class="playback-btn" id="btnPlaybackForward" title="Step forward">▶</button>
-                    <button class="playback-btn" id="btnPlaybackNext" title="Next snapshot">▶▶</button>
-                </div>
-                <div class="playback-date">
-                    <input type="date" id="playbackDatePicker" class="playback-date-input">
-                    <span class="playback-time" id="playbackTime">--:--</span>
-                </div>
-                <div class="playback-timeline">
-                    <input type="range" id="playbackSlider" class="playback-slider" min="0" max="100" value="0">
-                    <div class="playback-range">
-                        <span id="playbackStart">9:30 AM</span>
-                        <span id="playbackEnd">4:00 PM</span>
-                    </div>
-                </div>
-                <div class="playback-speed">
-                    <select id="playbackSpeed" class="playback-speed-select">
-                        <option value="1">1x</option>
-                        <option value="2" selected>2x</option>
-                        <option value="5">5x</option>
-                        <option value="10">10x</option>
-                    </select>
-                </div>
-                <button class="playback-btn playback-exit" id="btnPlaybackExit" title="Exit playback">✕ Live</button>
-            </div>
-
-            <!-- Symbol Header -->
-            <div class="symbol-header">
-                <div class="symbol-info">
-                    <span class="symbol-name" id="symbolName">SPX</span>
-                    <span class="spot-price" id="spotPrice">$0.00</span>
-                    <span class="king-distance" id="kingDistance">↑ $0.00 (0.00%) to King</span>
-                </div>
-                <div class="gex-summary">
-                    <div class="summary-item">
-                        <span class="label">Net GEX</span>
-                        <span class="value" id="netGex">$0.0B</span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="label">King</span>
-                        <span class="value king" id="kingNode">--</span>
-                        <span class="king-gex" id="kingGex">--</span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="label">Zero Gamma</span>
-                        <span class="value" id="zeroGamma">--</span>
-                    </div>
-                </div>
-                <div class="expiration-toggle">
-                    <button class="btn-exp active" data-exp="all" title="Show all expirations">All Dates</button>
-                    <button class="btn-exp" data-exp="0dte" title="Focus on nearest expiration">Near-Term</button>
-                </div>
-                <div class="view-toggle">
-                    <button class="btn-view active" data-view="gex">GEX</button>
-                    <button class="btn-view" data-view="vex">VEX</button>
-                    <button class="btn-view" data-view="dex">DEX</button>
-                    <button class="btn-view" data-view="flow">Flow</button>
-                </div>
-                <div class="heatmap-controls">
-                    <button class="btn-control" id="btnCenterSpot" title="Center on Spot Price">
-                        <span class="control-icon">◎</span>
-                    </button>
-                    <button class="btn-control" id="btnCenterKing" title="Center on Highest Value">
-                        <span class="control-icon">👑</span>
-                    </button>
-                    <div class="trend-filter-wrapper">
-                        <button class="btn-control" id="btnTrendFilter" title="Trend Filter">
-                            <span class="control-icon">↕</span>
-                        </button>
-                        <div class="trend-dropdown" id="trendDropdown">
-                            <button class="trend-option active" data-trend="all">↕ All Trends</button>
-                            <button class="trend-option" data-trend="increasing">↗ Increasing Only</button>
-                            <button class="trend-option" data-trend="decreasing">↘ Decreasing Only</button>
-                        </div>
-                    </div>
-                    <button class="btn-control" id="btnThemeToggle" title="Toggle Light/Dark Mode">
-                        <span class="control-icon" id="themeIcon">☀</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Features Toggle Bar -->
-            <div class="features-toggle-bar">
-                <button class="btn-features-toggle" id="btnFeaturesToggle" title="Toggle Features Panel">
-                    <span class="hamburger-icon">☰</span>
-                    <span>Features</span>
-                </button>
-                <button class="btn-walls-toggle" id="btnWallsToggle" title="Show Put/Call Walls">
-                    <span>Put/Call Walls</span>
-                </button>
-                <div class="quiver-buttons">
-                    <button class="btn-quiver" id="btnCongress" title="Congress Trading">
-                        <span class="quiver-icon">🏛️</span>
-                        <span>Congress</span>
-                    </button>
-                    <button class="btn-quiver" id="btnDarkPool" title="Dark Pool Activity">
-                        <span class="quiver-icon">🌑</span>
-                        <span>Dark Pool</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Collapsible Features Row -->
-            <div class="features-row collapsed" id="featuresRow">
-                <!-- Expected Move -->
-                <div class="feature-card expected-move-card">
-                    <div class="feature-header">
-                        <span class="feature-title">Expected Move</span>
-                        <span class="feature-iv" id="featureIV">IV: --</span>
-                    </div>
-                    <div class="expected-move-range">
-                        <div class="em-daily">
-                            <span class="em-label">1D</span>
-                            <span class="em-low" id="emDailyLow">--</span>
-                            <div class="em-bar-container">
-                                <div class="em-bar" id="emDailyBar"></div>
-                                <div class="em-spot-marker" id="emDailySpot"></div>
-                            </div>
-                            <span class="em-high" id="emDailyHigh">--</span>
-                        </div>
-                        <div class="em-weekly">
-                            <span class="em-label">1W</span>
-                            <span class="em-low" id="emWeeklyLow">--</span>
-                            <div class="em-bar-container">
-                                <div class="em-bar" id="emWeeklyBar"></div>
-                                <div class="em-spot-marker" id="emWeeklySpot"></div>
-                            </div>
-                            <span class="em-high" id="emWeeklyHigh">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- GEX Flip Level -->
-                <div class="feature-card gex-flip-card">
-                    <div class="feature-header">
-                        <span class="feature-title">GEX Flip Level</span>
-                    </div>
-                    <div class="gex-flip-content">
-                        <span class="gex-flip-value" id="gexFlipValue">--</span>
-                        <span class="gex-flip-distance" id="gexFlipDistance">--</span>
-                        <span class="gex-flip-regime" id="gexFlipRegime">--</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Price Chart with GEX Levels -->
-            <div class="chart-container" id="chartContainer" style="display: none;">
-                <div class="chart-header">
-                    <span class="chart-title">Price Chart with GEX Levels</span>
-                    <div class="chart-controls">
-                        <button class="btn-resolution active" data-res="5">5m</button>
-                        <button class="btn-resolution" data-res="15">15m</button>
-                        <button class="btn-resolution" data-res="60">1H</button>
-                        <button class="btn-resolution" data-res="D">1D</button>
-                        <button class="btn-close-chart" id="btnCloseChart">×</button>
-                    </div>
-                </div>
-                <div class="chart-wrapper" id="priceChart"></div>
-                <div class="chart-legend">
-                    <span class="legend-item legend-king">● King</span>
-                    <span class="legend-item legend-gatekeeper">● Gatekeeper</span>
-                    <span class="legend-item legend-zero-gamma">● Zero Gamma</span>
-                    <span class="legend-item legend-flip">● GEX Flip</span>
-                    <span class="legend-item legend-em">▬ Expected Move</span>
-                </div>
-            </div>
-
-            <!-- Put/Call Walls Floating Popup -->
-            <div class="walls-overlay" id="wallsOverlay" style="display: none;">
-                <div class="walls-popup" id="wallsPopup">
-                    <div class="walls-header">
-                        <span class="walls-title">Put/Call Walls</span>
-                        <button class="btn-close-walls" id="btnCloseWalls">×</button>
-                    </div>
-                    <div class="walls-chart" id="wallsChart"></div>
-                    <div class="walls-legend">
-                        <span class="legend-item legend-calls">■ Call GEX</span>
-                        <span class="legend-item legend-puts">■ Put GEX</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Congress Trading Popup -->
-            <div class="quiver-overlay" id="congressOverlay" style="display: none;">
-                <div class="quiver-popup congress-popup">
-                    <div class="quiver-popup-header">
-                        <span class="quiver-popup-title">🏛️ Congress Trading</span>
-                        <button class="btn-close-quiver" data-popup="congressOverlay">×</button>
-                    </div>
-                    <div class="quiver-popup-body" id="congressContent">
-                        <div class="quiver-loading">Loading Congress trades...</div>
-                    </div>
-                    <div class="quiver-popup-footer">
-                        <span class="quiver-source">Data: Quiver Quant</span>
-                        <span class="quiver-update" id="congressUpdate">--</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Dark Pool Popup -->
-            <div class="quiver-overlay" id="darkpoolOverlay" style="display: none;">
-                <div class="quiver-popup darkpool-popup">
-                    <div class="quiver-popup-header">
-                        <span class="quiver-popup-title">🌑 Dark Pool Activity</span>
-                        <button class="btn-close-quiver" data-popup="darkpoolOverlay">×</button>
-                    </div>
-                    <div class="quiver-popup-body" id="darkpoolContent">
-                        <div class="quiver-loading">Loading dark pool data...</div>
-                    </div>
-                    <div class="quiver-popup-footer">
-                        <span class="quiver-source">Data: Quiver Quant (FINRA)</span>
-                        <span class="quiver-update" id="darkpoolUpdate">--</span>
-                    </div>
-                </div>
             </div>
 
             <!-- Heatmap -->
             <div class="heatmap-container">
                 <div class="heatmap-wrapper">
-                    <div class="heatmap-view-title" id="heatmapViewTitle">GEX Heatmap</div>
                     <table class="heatmap" id="heatmapTable">
                         <thead>
                             <tr id="heatmapHeader">
                                 <th class="strike-col">Strike</th>
-                                <!-- Expiration columns added by JS -->
                             </tr>
                         </thead>
-                        <tbody id="heatmapBody">
-                            <!-- Data rows added by JS -->
-                        </tbody>
+                        <tbody id="heatmapBody"></tbody>
                     </table>
                 </div>
 
-                <!-- Strike Detail Panel (0DTE mode) -->
-                <div class="strike-detail-panel" id="strikeDetailPanel">
-                    <div class="detail-header">
-                        <div class="detail-strike">
-                            <span class="lightning-icon">⚡</span>
-                            <span class="detail-strike-value" id="detailStrike">Strike --</span>
-                            <span class="detail-badge" id="detailBadge">--</span>
-                        </div>
-                        <button class="btn-close-detail" id="btnCloseDetail">×</button>
-                        <div class="detail-expiry" id="detailExpiry">--</div>
-                    </div>
-
-                    <div class="detail-current">
-                        <div class="detail-label">Current Value</div>
-                        <div class="detail-row">
-                            <span class="detail-value" id="detailCurrentValue">--</span>
-                            <span class="detail-trend" id="detailTrend">--</span>
-                        </div>
-                    </div>
-
-                    <div class="detail-chart">
-                        <div class="detail-label">Value Over Time</div>
-                        <div class="detail-sparkline" id="detailSparkline">
-                            <div class="sparkline-placeholder">Click a strike to view</div>
-                        </div>
-                    </div>
-
-                    <div class="detail-changes">
-                        <div class="detail-label">⏱ Rate of Change</div>
-                        <div class="change-row">
-                            <span class="change-period">1 min</span>
-                            <span class="change-value" id="change1m">--</span>
-                            <span class="change-pct" id="changePct1m">--</span>
-                        </div>
-                        <div class="change-row">
-                            <span class="change-period">5 min</span>
-                            <span class="change-value" id="change5m">--</span>
-                            <span class="change-pct" id="changePct5m">--</span>
-                        </div>
-                        <div class="change-row">
-                            <span class="change-period">10 min</span>
-                            <span class="change-value" id="change10m">--</span>
-                            <span class="change-pct" id="changePct10m">--</span>
-                        </div>
-                    </div>
-
-                    <div class="detail-velocity">
-                        <span class="velocity-label">1m Velocity</span>
-                        <span class="velocity-value" id="detailVelocity">--</span>
-                        <span class="velocity-rate" id="detailVelocityRate">--</span>
-                    </div>
-                </div>
+                <!-- Key Zones Sidebar -->
+                <aside class="zones-sidebar">
+                    <h3>Key Zones</h3>
+                    <div class="zones-list" id="zonesList"></div>
+                </aside>
             </div>
 
-            <!-- Flow Container (hidden by default, shown when Flow tab selected) -->
+            <!-- Flow Container -->
             <div class="flow-container" id="flowContainer" style="display: none;">
-                <div class="flow-header">
-                    <div class="flow-sentiment" id="flowSentiment">
+                <!-- Flow Header -->
+                <div class="flow-page-header">
+                    <div class="flow-title">
+                        <h2>Options Flow</h2>
+                        <span class="live-badge"><span class="pulse-dot"></span> LIVE</span>
+                    </div>
+                    <div class="flow-sentiment-badge" id="flowSentimentBadge">
                         <span class="sentiment-icon">📊</span>
-                        <span class="sentiment-label">Flow:</span>
+                        <span>Flow: </span>
                         <span class="sentiment-value" id="flowSentimentValue">NEUTRAL</span>
-                        <span class="sentiment-pressure" id="flowPressureValue">0%</span>
+                        <span class="sentiment-pct" id="flowPressureValue">0%</span>
                     </div>
-                    <div class="flow-summary">
-                        <div class="flow-stat">
-                            <span class="stat-label">Call Premium</span>
-                            <span class="stat-value call" id="flowCallPremium">$0</span>
+                </div>
+
+                <!-- Metrics Row -->
+                <div class="flow-metrics-row">
+                    <div class="flow-metric-card call">
+                        <div class="metric-header">
+                            <span class="metric-label">Call Premium</span>
+                            <span class="metric-icon">📈</span>
                         </div>
-                        <div class="flow-stat">
-                            <span class="stat-label">Put Premium</span>
-                            <span class="stat-value put" id="flowPutPremium">$0</span>
-                        </div>
-                        <div class="flow-stat">
-                            <span class="stat-label">Net Premium</span>
-                            <span class="stat-value" id="flowNetPremium">$0</span>
-                        </div>
+                        <div class="metric-value" id="flowCallPremium">$0</div>
                     </div>
-                    <div class="flow-sweep-blocks">
-                        <div class="sweep-stat">
-                            <span class="sweep-icon">🔥</span>
-                            <span class="sweep-label">Sweeps:</span>
-                            <span class="sweep-bullish" id="sweepsBullish">0</span> /
-                            <span class="sweep-bearish" id="sweepsBearish">0</span>
+                    <div class="flow-metric-card put">
+                        <div class="metric-header">
+                            <span class="metric-label">Put Premium</span>
+                            <span class="metric-icon">📉</span>
                         </div>
-                        <div class="block-stat">
-                            <span class="block-icon">📦</span>
-                            <span class="block-label">Blocks:</span>
-                            <span class="block-bullish" id="blocksBullish">0</span> /
-                            <span class="block-bearish" id="blocksBearish">0</span>
+                        <div class="metric-value" id="flowPutPremium">$0</div>
+                    </div>
+                    <div class="flow-metric-card net">
+                        <div class="metric-header">
+                            <span class="metric-label">Net Premium</span>
+                            <span class="metric-icon">⚡</span>
+                        </div>
+                        <div class="metric-value" id="flowNetPremium">$0</div>
+                    </div>
+                    <div class="flow-metric-card sweeps">
+                        <div class="metric-header">
+                            <span class="metric-label">Sweeps</span>
+                            <span class="metric-icon">🔥</span>
+                        </div>
+                        <div class="metric-value" id="flowSweeps">0 / 0</div>
+                    </div>
+                    <div class="flow-metric-card blocks">
+                        <div class="metric-header">
+                            <span class="metric-label">Blocks</span>
+                            <span class="metric-icon">📦</span>
+                        </div>
+                        <div class="metric-value" id="flowBlocks">0 / 0</div>
+                    </div>
+                    <div class="flow-metric-card velocity">
+                        <div class="metric-header">
+                            <span class="metric-label">1m Velocity</span>
+                            <span class="metric-icon">⏱</span>
+                        </div>
+                        <div class="metric-value" id="flowVelocity">$0</div>
+                    </div>
+                </div>
+
+                <!-- Rate of Change Bar -->
+                <div class="flow-roc-bar">
+                    <div class="roc-label">
+                        <span class="roc-icon">⏱</span>
+                        <span>Rate of Change</span>
+                    </div>
+                    <div class="roc-items">
+                        <div class="roc-item">
+                            <span class="roc-period">1 min</span>
+                            <span class="roc-value positive" id="roc1m">+$0</span>
+                        </div>
+                        <div class="roc-item">
+                            <span class="roc-period">5 min</span>
+                            <span class="roc-value positive" id="roc5m">+$0</span>
+                        </div>
+                        <div class="roc-item">
+                            <span class="roc-period">10 min</span>
+                            <span class="roc-value positive" id="roc10m">+$0</span>
                         </div>
                     </div>
                 </div>
-                <div class="flow-pressure-bars" id="flowPressureBars">
-                    <!-- Pressure bars populated by JS -->
-                    <div class="flow-loading">Loading flow data...</div>
-                </div>
-                <div class="flow-footer">
-                    <span class="flow-source">Data: Massive (Polygon OPRA)</span>
-                    <span class="flow-update" id="flowUpdate">Last update: --</span>
+
+                <!-- Flow Content -->
+                <div class="flow-content">
+                    <!-- Strike Distribution Panel (Full Width) -->
+                    <div class="flow-panel distribution-panel full-width" id="panelDistribution">
+                        <div class="distribution-header">
+                            <h3>Volume by Strike <span class="spot-indicator" id="flowSpotIndicator"></span></h3>
+                            <div class="distribution-legend">
+                                <span class="legend-item"><span class="legend-dot call"></span> Call Volume</span>
+                                <span class="legend-item"><span class="legend-dot put"></span> Put Volume</span>
+                            </div>
+                        </div>
+                        <div class="flow-pressure-bars" id="flowPressureBars">
+                            <div class="flow-loading">Loading flow data...</div>
+                        </div>
+                    </div>
                 </div>
             </div>
-
-            <!-- Key Zones Sidebar -->
-            <aside class="zones-sidebar">
-                <h3>Key Zones</h3>
-                <div class="zones-list" id="zonesList">
-                    <!-- Populated by JS -->
-                </div>
-            </aside>
         </main>
 
-        <!-- Trinity Mode Container (hidden by default) -->
-        <div class="trinity-container" id="trinityContainer" style="display: none;">
-            <div class="trinity-column" id="trinityCol1">
-                <div class="trinity-header">
-                    <div class="trinity-search" data-col="0">
-                        <input type="text" class="trinity-search-input" placeholder="Search symbol..." autocomplete="off">
-                        <div class="trinity-dropdown"></div>
-                    </div>
-                </div>
-                <div class="trinity-info">
-                    <span class="trinity-price">--</span>
-                    <span class="trinity-king-distance">--</span>
-                    <span class="trinity-king-gex">King: --</span>
-                </div>
-                <div class="trinity-heatmap"></div>
-            </div>
-            <div class="trinity-column" id="trinityCol2">
-                <div class="trinity-header">
-                    <div class="trinity-search" data-col="1">
-                        <input type="text" class="trinity-search-input" placeholder="Search symbol..." autocomplete="off">
-                        <div class="trinity-dropdown"></div>
-                    </div>
-                </div>
-                <div class="trinity-info">
-                    <span class="trinity-price">--</span>
-                    <span class="trinity-king-distance">--</span>
-                    <span class="trinity-king-gex">King: --</span>
-                </div>
-                <div class="trinity-heatmap"></div>
-            </div>
-            <div class="trinity-column" id="trinityCol3">
-                <div class="trinity-header">
-                    <div class="trinity-search" data-col="2">
-                        <input type="text" class="trinity-search-input" placeholder="Search symbol..." autocomplete="off">
-                        <div class="trinity-dropdown"></div>
-                    </div>
-                </div>
-                <div class="trinity-info">
-                    <span class="trinity-price">--</span>
-                    <span class="trinity-king-distance">--</span>
-                    <span class="trinity-king-gex">King: --</span>
-                </div>
-                <div class="trinity-heatmap"></div>
-            </div>
+        <!-- Status Bar (minimal footer) -->
+        <div class="status-bar">
+            <span class="status-item" id="connectionStatus">Connected</span>
+            <span class="status-item">Data: <span id="dataSource">--</span></span>
+            <span class="status-item" id="lastUpdate">Updated: --:--:--</span>
         </div>
 
-        <!-- Footer -->
-        <footer class="footer">
-            <div class="footer-left">
-                <span>Data: <span id="dataSource">Mock</span></span>
-                <span class="separator">|</span>
-                <span>Symbols: <span id="symbolCount">0</span></span>
+        <!-- Hidden elements for compatibility -->
+        <div style="display:none;">
+            <span id="currentDate"></span>
+            <span id="regimeVix"></span>
+            <span id="regimeBadge"></span>
+            <span id="reliabilityBadge"></span>
+            <span id="eventBadge"></span>
+            <span id="marketStatusBadge"></span>
+            <span id="deltaGex"></span>
+            <span id="deltaVex"></span>
+            <span id="deltaDex"></span>
+            <span id="alertsIndicator"></span>
+            <span id="alertCount"></span>
+            <span id="heatmapViewTitle"></span>
+            <span id="playbackStart"></span>
+            <span id="playbackEnd"></span>
+        </div>
+
+        <!-- Put/Call Walls Popup -->
+        <div class="walls-overlay" id="wallsOverlay" style="display: none;">
+            <div class="walls-popup">
+                <div class="walls-header">
+                    <h3>Put/Call Walls</h3>
+                    <button class="btn-close-walls" id="btnCloseWalls">&times;</button>
+                </div>
+                <div class="walls-chart" id="wallsChart">
+                    <!-- Rendered by JS -->
+                </div>
+                <div class="walls-legend">
+                    <span class="legend-item"><span class="legend-color call"></span> Call GEX</span>
+                    <span class="legend-item"><span class="legend-color put"></span> Put GEX</span>
+                </div>
             </div>
-            <div class="footer-right">
-                <button class="btn-playback" id="btnEnterPlayback" title="Review historical GEX data">⏮ Playback</button>
-                <button class="btn-refresh" id="btnRefresh">↻ Refresh Now</button>
-            </div>
-        </footer>
+        </div>
     </div>
 
     <script src="/static/heatmap.js"></script>

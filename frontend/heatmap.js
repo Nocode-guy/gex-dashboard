@@ -10,7 +10,7 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
 // State - load from localStorage if available
 let currentSymbol = localStorage.getItem('gex_currentSymbol') || 'SPX';
 let refreshInterval = parseInt(localStorage.getItem('gex_refreshInterval')) || 5;
-let frontendRefreshSec = 10; // Frontend polling (seconds)
+let frontendRefreshSec = 3; // Frontend polling (seconds) - real-time updates
 let autoRefreshTimer = null;
 let symbols = [];
 let lastPrices = {}; // Track price changes
@@ -22,6 +22,18 @@ let selectedStrike = null; // Currently selected strike for detail panel
 let trinitySymbols = JSON.parse(localStorage.getItem('gex_trinitySymbols')) || ['SPY', 'QQQ', 'IWM'];
 let trinityData = {}; // Cache data for trinity columns
 let trendFilter = localStorage.getItem('gex_trendFilter') || 'all'; // 'all', 'increasing', 'decreasing'
+
+// Intraday baseline tracking (reset at market open)
+let intradayBaseline = {
+    gex: null,
+    vex: null,
+    dex: null,
+    timestamp: null
+};
+
+// Recent DEX values for slope calculation
+let dexHistory = [];
+const DEX_HISTORY_LENGTH = 5; // Track last 5 values
 
 // Parse date string as LOCAL date (not UTC) to avoid timezone issues
 function parseLocalDate(dateStr) {
@@ -97,14 +109,24 @@ function setTrendFilter(trend) {
 // Navigate to previous/next symbol in favorites
 function navigateSymbol(direction) {
     if (symbols.length < 2) return;
-    const currentIdx = symbols.indexOf(currentSymbol);
+    // Find current index - symbols can be strings or objects
+    const currentIdx = symbols.findIndex(s => {
+        const sym = typeof s === 'string' ? s : s.symbol;
+        return sym === currentSymbol;
+    });
+    if (currentIdx === -1) return;
+
     let newIdx;
     if (direction === 'prev') {
         newIdx = currentIdx <= 0 ? symbols.length - 1 : currentIdx - 1;
     } else {
         newIdx = currentIdx >= symbols.length - 1 ? 0 : currentIdx + 1;
     }
-    loadSymbol(symbols[newIdx]);
+
+    const newSymbol = typeof symbols[newIdx] === 'string' ? symbols[newIdx] : symbols[newIdx].symbol;
+    currentSymbol = newSymbol;
+    loadSymbol(newSymbol);
+    renderSymbolTabs(); // Update pill highlighting
 }
 
 // DOM Elements - will be populated after DOM is ready
@@ -163,6 +185,20 @@ function initElements() {
         flowPressureBars: document.getElementById('flowPressureBars'),
         flowUpdate: document.getElementById('flowUpdate'),
         heatmapContainer: document.querySelector('.heatmap-container'),
+        // New flow metric elements
+        flowSweeps: document.getElementById('flowSweeps'),
+        flowBlocks: document.getElementById('flowBlocks'),
+        flowVelocity: document.getElementById('flowVelocity'),
+        roc1m: document.getElementById('roc1m'),
+        roc5m: document.getElementById('roc5m'),
+        roc10m: document.getElementById('roc10m'),
+        // Dealer behavior elements
+        dealerStatus: document.getElementById('dealerStatus'),
+        dealerAction: document.getElementById('dealerAction'),
+        dealerWarning: document.getElementById('dealerWarning'),
+        dealerWarningText: document.getElementById('dealerWarningText'),
+        deltaGexOpen: document.getElementById('deltaGexOpen'),
+        zeroGammaDistance: document.getElementById('zeroGammaDistance'),
     };
 
     // Debug: check if critical elements are found
@@ -243,25 +279,53 @@ async function checkMarketStatus() {
         const data = await response.json();
 
         const badge = elements.marketStatusBadge;
-        if (!badge) return;
-
         const refreshLoop = data.refresh_loop || {};
         const marketOpen = refreshLoop.market_open;
         const isWeekend = refreshLoop.is_weekend;
         const paused = refreshLoop.paused;
 
-        if (isWeekend) {
-            badge.textContent = 'WEEKEND';
-            badge.className = 'market-status-badge weekend';
-            badge.style.display = 'inline-flex';
-            badge.title = 'Market closed on weekends - data from last trading day';
-        } else if (!marketOpen || paused) {
-            badge.textContent = 'MARKET CLOSED';
-            badge.className = 'market-status-badge closed';
-            badge.style.display = 'inline-flex';
-            badge.title = 'Market hours: 9:00am - 4:30pm ET';
-        } else {
-            badge.style.display = 'none';
+        // Update control bar Live indicator
+        const liveIndicator = document.getElementById('liveIndicator');
+        if (liveIndicator) {
+            const dot = liveIndicator.querySelector('.live-dot');
+            const text = liveIndicator.querySelector('.live-text');
+
+            if (marketOpen && !paused && !isWeekend) {
+                // Market is open - show LIVE
+                liveIndicator.classList.remove('stale');
+                liveIndicator.classList.add('live');
+                if (dot) {
+                    dot.classList.remove('stale');
+                    dot.classList.add('live');
+                }
+                if (text) text.textContent = 'Live';
+            } else {
+                // Market closed - show STALE
+                liveIndicator.classList.remove('live');
+                liveIndicator.classList.add('stale');
+                if (dot) {
+                    dot.classList.remove('live');
+                    dot.classList.add('stale');
+                }
+                if (text) text.textContent = isWeekend ? 'Weekend' : 'Stale';
+            }
+        }
+
+        // Update old badge if it exists
+        if (badge) {
+            if (isWeekend) {
+                badge.textContent = 'WEEKEND';
+                badge.className = 'market-status-badge weekend';
+                badge.style.display = 'inline-flex';
+                badge.title = 'Market closed on weekends - data from last trading day';
+            } else if (!marketOpen || paused) {
+                badge.textContent = 'MARKET CLOSED';
+                badge.className = 'market-status-badge closed';
+                badge.style.display = 'inline-flex';
+                badge.title = 'Market hours: 9:00am - 4:30pm ET';
+            } else {
+                badge.style.display = 'none';
+            }
         }
     } catch (error) {
         console.error('Failed to check market status:', error);
@@ -373,29 +437,54 @@ function renderFlowData(data) {
         elements.flowNetPremium.style.color = net > 0 ? 'var(--accent-green)' : net < 0 ? 'var(--accent-red)' : '';
     }
 
-    // Sweeps and blocks
-    if (elements.sweepsBullish) {
-        elements.sweepsBullish.textContent = data.sweeps?.bullish || 0;
-    }
-    if (elements.sweepsBearish) {
-        elements.sweepsBearish.textContent = data.sweeps?.bearish || 0;
-    }
-    if (elements.blocksBullish) {
-        elements.blocksBullish.textContent = data.blocks?.bullish || 0;
-    }
-    if (elements.blocksBearish) {
-        elements.blocksBearish.textContent = data.blocks?.bearish || 0;
+    // Update sweeps count (call sweeps / put sweeps)
+    if (elements.flowSweeps) {
+        // Support both flat and nested formats
+        const callSweeps = data.call_sweeps ?? data.sweeps?.bullish ?? 0;
+        const putSweeps = data.put_sweeps ?? data.sweeps?.bearish ?? 0;
+        elements.flowSweeps.textContent = `${callSweeps} / ${putSweeps}`;
     }
 
-    // Render pressure bars
+    // Update blocks count (call blocks / put blocks)
+    if (elements.flowBlocks) {
+        const callBlocks = data.call_blocks ?? data.blocks?.bullish ?? 0;
+        const putBlocks = data.put_blocks ?? data.blocks?.bearish ?? 0;
+        elements.flowBlocks.textContent = `${callBlocks} / ${putBlocks}`;
+    }
+
+    // Update 1m velocity (net premium per minute approximation)
+    if (elements.flowVelocity) {
+        const velocity = data.velocity_1m || Math.abs(data.net_premium / 60) || 0;
+        elements.flowVelocity.textContent = formatPremium(velocity);
+    }
+
+    // Update rate of change values (placeholder for now)
+    if (elements.roc1m) {
+        const roc = data.roc_1m || 0;
+        elements.roc1m.textContent = `${roc >= 0 ? '+' : ''}${formatPremium(roc)}`;
+        elements.roc1m.className = `roc-value ${roc > 0 ? 'positive' : roc < 0 ? 'negative' : ''}`;
+    }
+    if (elements.roc5m) {
+        const roc = data.roc_5m || 0;
+        elements.roc5m.textContent = `${roc >= 0 ? '+' : ''}${formatPremium(roc)}`;
+        elements.roc5m.className = `roc-value ${roc > 0 ? 'positive' : roc < 0 ? 'negative' : ''}`;
+    }
+    if (elements.roc10m) {
+        const roc = data.roc_10m || 0;
+        elements.roc10m.textContent = `${roc >= 0 ? '+' : ''}${formatPremium(roc)}`;
+        elements.roc10m.className = `roc-value ${roc > 0 ? 'positive' : roc < 0 ? 'negative' : ''}`;
+    }
+
+    // Update spot price indicator in header
+    const spotIndicator = document.getElementById('flowSpotIndicator');
+    if (spotIndicator && data.spot_price) {
+        spotIndicator.textContent = `Spot: $${data.spot_price.toFixed(2)}`;
+    }
+
+    // Render pressure bars (strike distribution)
     renderPressureBars(data.strike_pressure || {}, data.spot_price || 0);
-
-    // Update timestamp
-    if (elements.flowUpdate) {
-        const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '--';
-        elements.flowUpdate.textContent = `Last update: ${time}`;
-    }
 }
+
 
 function formatPremium(value) {
     if (Math.abs(value) >= 1e9) {
@@ -411,30 +500,63 @@ function formatPremium(value) {
 function renderPressureBars(strikePressure, spotPrice) {
     if (!elements.flowPressureBars) return;
 
-    // Preserve scroll position to prevent page jumping on updates
-    const scrollTop = elements.flowPressureBars.scrollTop;
-
     // Convert object to sorted array
-    const strikes = Object.entries(strikePressure)
+    const allStrikes = Object.entries(strikePressure)
         .map(([strike, data]) => ({
             strike: parseFloat(strike),
             ...data
         }))
         .sort((a, b) => b.strike - a.strike);
 
-    if (strikes.length === 0) {
+    if (allStrikes.length === 0) {
         elements.flowPressureBars.innerHTML = '<div class="flow-loading">No flow data available</div>';
         return;
     }
 
-    // Find max premium for scaling
+    // Limit to 30 strikes centered on spot price (15 above, 15 below)
+    const STRIKES_ABOVE = 15;
+    const STRIKES_BELOW = 15;
+
+    // Find the strike closest to spot price
+    let closestIdx = 0;
+    let closestDiff = Infinity;
+    allStrikes.forEach((s, idx) => {
+        const diff = Math.abs(s.strike - spotPrice);
+        if (diff < closestDiff) {
+            closestDiff = diff;
+            closestIdx = idx;
+        }
+    });
+
+    // Calculate start and end indices
+    // Since array is sorted descending (high to low), above spot = lower index
+    let startIdx = Math.max(0, closestIdx - STRIKES_ABOVE);
+    let endIdx = Math.min(allStrikes.length, closestIdx + STRIKES_BELOW + 1);
+
+    // Adjust if we don't have enough strikes on one side
+    const totalNeeded = STRIKES_ABOVE + STRIKES_BELOW + 1;
+    if (endIdx - startIdx < totalNeeded) {
+        if (startIdx === 0) {
+            endIdx = Math.min(allStrikes.length, totalNeeded);
+        } else if (endIdx === allStrikes.length) {
+            startIdx = Math.max(0, allStrikes.length - totalNeeded);
+        }
+    }
+
+    const strikes = allStrikes.slice(startIdx, endIdx);
+
+    // Find max premium for scaling (only among visible strikes)
     const maxPremium = Math.max(
         ...strikes.map(s => Math.max(s.call_premium || 0, s.put_premium || 0))
     );
 
+    // Calculate strike interval for "at spot" detection
+    const strikeInterval = strikes.length > 1 ? Math.abs(strikes[0].strike - strikes[1].strike) : 1;
+
     // Render bars
     elements.flowPressureBars.innerHTML = strikes.map(s => {
-        const isAtSpot = Math.abs(s.strike - spotPrice) < (spotPrice * 0.001);
+        // Mark as "at spot" if this is the closest strike to spot price
+        const isAtSpot = Math.abs(s.strike - spotPrice) <= strikeInterval / 2;
         const isAboveSpot = s.strike > spotPrice;
 
         // Calculate bar widths (0-100%)
@@ -466,9 +588,6 @@ function renderPressureBars(strikePressure, spotPrice) {
             </div>
         `;
     }).join('');
-
-    // Restore scroll position after render
-    elements.flowPressureBars.scrollTop = scrollTop;
 }
 
 function formatCompact(value) {
@@ -490,31 +609,40 @@ function setConnectionStatus(status, text) {
 }
 
 function renderSymbolTabs() {
+    // Update symbol count
+    const countEl = document.getElementById('symbolCount');
+    if (countEl) countEl.textContent = symbols.length;
+
+    // Render ticker pills (Skylit style) with X button for removal
     elements.symbolTabs.innerHTML = symbols.map(sym => {
-        const isActive = sym.symbol === currentSymbol;
-        const gexType = sym.net_gex >= 0 ? 'positive' : 'negative';
+        const symbolName = typeof sym === 'string' ? sym : sym.symbol;
+        const isActive = symbolName === currentSymbol;
         return `
-            <button class="symbol-tab ${isActive ? 'active' : ''}"
-                    data-symbol="${sym.symbol}">
-                ${sym.symbol}
-                <span class="gex-indicator ${gexType}"></span>
-                <span class="btn-remove" data-symbol="${sym.symbol}" title="Remove ${sym.symbol}">x</span>
+            <button class="ticker-pill ${isActive ? 'active' : ''}"
+                    data-symbol="${symbolName}">
+                <span class="pill-name">${symbolName}</span>
+                <span class="pill-remove" data-symbol="${symbolName}" title="Remove ${symbolName}">×</span>
             </button>
         `;
     }).join('');
 
-    // Add click handlers for tabs
-    document.querySelectorAll('.symbol-tab').forEach(tab => {
-        tab.addEventListener('click', (e) => {
+    // Add click handlers for pills (select symbol)
+    document.querySelectorAll('.ticker-pill').forEach(pill => {
+        pill.addEventListener('click', (e) => {
             // Ignore if clicking the remove button
-            if (e.target.classList.contains('btn-remove')) return;
-            currentSymbol = tab.dataset.symbol;
+            if (e.target.classList.contains('pill-remove')) return;
+            const symbol = pill.dataset.symbol;
+            currentSymbol = symbol;
             loadSymbol(currentSymbol);
+            // Update active state immediately
+            document.querySelectorAll('.ticker-pill').forEach(p => {
+                p.classList.toggle('active', p.dataset.symbol === symbol);
+            });
         });
     });
 
     // Add click handlers for remove buttons
-    document.querySelectorAll('.btn-remove').forEach(btn => {
+    document.querySelectorAll('.pill-remove').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
             const symbol = btn.dataset.symbol;
@@ -585,6 +713,9 @@ function renderHeader(data) {
         ? formatPrice(data.meta.zero_gamma_level)
         : '--';
 
+    // Update dealer behavior and intraday tracking
+    updateDealerBehavior(data);
+
     // OPEX Warning
     if (data.opex_warning) {
         elements.opexWarning.style.display = 'flex';
@@ -608,6 +739,126 @@ function renderHeader(data) {
 
     // Render regime and changes
     renderRegime(data);
+}
+
+// =============================================================================
+// DEALER BEHAVIOR & INTRADAY TRACKING
+// =============================================================================
+
+function updateDealerBehavior(data) {
+    const spotPrice = data.spot_price;
+    const zeroGamma = data.meta?.zero_gamma_level;
+    const netDex = data.meta?.net_dex || 0;
+    const netGex = data.meta?.net_gex || 0;
+
+    // --- 1. Update intraday baseline (reset at market open 9:30 ET) ---
+    const now = new Date();
+    const marketOpen = new Date(now);
+    marketOpen.setHours(9, 30, 0, 0);
+
+    // Reset baseline if it's a new day or after market open with no baseline
+    if (!intradayBaseline.timestamp ||
+        (now > marketOpen && intradayBaseline.timestamp < marketOpen)) {
+        intradayBaseline = {
+            gex: netGex,
+            vex: data.meta?.net_vex || 0,
+            dex: netDex,
+            timestamp: now
+        };
+        dexHistory = [netDex];
+    }
+
+    // Track DEX history for slope calculation
+    dexHistory.push(netDex);
+    if (dexHistory.length > DEX_HISTORY_LENGTH) {
+        dexHistory.shift();
+    }
+
+    // --- 2. Calculate and display GEX change since open ---
+    if (elements.deltaGexOpen && intradayBaseline.gex !== null) {
+        const gexDelta = netGex - intradayBaseline.gex;
+        const gexDeltaB = gexDelta / 1e9;
+        const sign = gexDelta >= 0 ? '+' : '';
+        elements.deltaGexOpen.textContent = `${sign}${gexDeltaB.toFixed(1)}B`;
+        elements.deltaGexOpen.className = `metric-delta ${gexDelta >= 0 ? 'positive' : 'negative'}`;
+    }
+
+    // --- 3. Zero Gamma distance and flip risk ---
+    if (elements.zeroGammaDistance && zeroGamma && spotPrice) {
+        const zgDistance = spotPrice - zeroGamma;
+        const zgPct = ((zgDistance / spotPrice) * 100).toFixed(1);
+        const isNearFlip = Math.abs(zgPct) < 0.5; // Within 0.5% of zero gamma
+
+        if (isNearFlip) {
+            elements.zeroGammaDistance.textContent = `⚠️ FLIP ZONE`;
+            elements.zeroGammaDistance.style.color = 'var(--accent-yellow)';
+        } else {
+            const direction = zgDistance > 0 ? 'above' : 'below';
+            elements.zeroGammaDistance.textContent = `${Math.abs(zgPct)}% ${direction}`;
+            elements.zeroGammaDistance.style.color = zgDistance > 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+        }
+    }
+
+    // --- 4. Dealer action status ---
+    // DEX positive = Dealers long delta = Selling rallies = BEARISH
+    // DEX negative = Dealers short delta = Buying dips = BULLISH
+    if (elements.dealerAction) {
+        const dexThreshold = 1e8; // $100M threshold for significant positioning
+
+        if (netDex > dexThreshold) {
+            elements.dealerAction.textContent = 'Selling Rallies';
+            elements.dealerAction.className = 'dealer-action selling';
+        } else if (netDex < -dexThreshold) {
+            elements.dealerAction.textContent = 'Buying Dips';
+            elements.dealerAction.className = 'dealer-action buying';
+        } else {
+            elements.dealerAction.textContent = 'Neutral';
+            elements.dealerAction.className = 'dealer-action neutral';
+        }
+    }
+
+    // --- 5. Dealer flip warning banner ---
+    if (elements.dealerWarning && elements.dealerWarningText) {
+        let showWarning = false;
+        let warningText = '';
+
+        // Check for Zero Gamma flip risk (price within 0.5% of ZG)
+        if (zeroGamma && spotPrice) {
+            const zgPct = Math.abs((spotPrice - zeroGamma) / spotPrice) * 100;
+            if (zgPct < 0.5) {
+                showWarning = true;
+                warningText = `⚠️ Dealer Flip Risk — Price at Zero Gamma (${zeroGamma.toFixed(0)})`;
+            }
+        }
+
+        // Check for DEX sign flip (rapid change in dealer positioning)
+        if (dexHistory.length >= 3) {
+            const recentDex = dexHistory.slice(-3);
+            const hadPositive = recentDex.some(d => d > 0);
+            const hadNegative = recentDex.some(d => d < 0);
+            if (hadPositive && hadNegative) {
+                showWarning = true;
+                warningText = warningText || '⚠️ Dealer Delta Flip — Positioning Reversed';
+            }
+        }
+
+        // Calculate DEX slope (is pressure building or fading?)
+        if (dexHistory.length >= 2) {
+            const dexSlope = dexHistory[dexHistory.length - 1] - dexHistory[0];
+            const slopeB = Math.abs(dexSlope) / 1e9;
+
+            // Add slope info to warning if significant
+            if (slopeB > 0.1 && showWarning) {
+                const direction = dexSlope > 0 ? 'Selling pressure building' : 'Buying pressure building';
+                warningText += ` — ${direction}`;
+            }
+        }
+
+        elements.dealerWarning.style.display = showWarning ? 'flex' : 'none';
+        if (showWarning) {
+            elements.dealerWarningText.textContent = warningText;
+        }
+    }
 }
 
 function updatePressureGauge(data) {
@@ -1375,6 +1626,7 @@ function updateRateOfChange(currentGex) {
 
 function renderZones(data) {
     const zones = data.zones.slice(0, 10); // Top 10 zones
+    const spotPrice = data.spot_price || 0;
 
     // Get intraday zone deltas for percentage changes
     const zoneDeltas = data.intraday?.zone_deltas || {};
@@ -1401,6 +1653,26 @@ function renderZones(data) {
           })
         : null;
 
+    // Find RESISTANCE WALL - Highest positive GEX ABOVE spot price
+    const zonesAboveSpot = positiveZones.filter(z => z.strike > spotPrice);
+    const resistanceWall = zonesAboveSpot.length > 0
+        ? zonesAboveSpot.reduce((max, z) => {
+            const maxGex = parseFloat(max.gex_formatted.replace(/[$,M]/g, '')) || 0;
+            const zGex = parseFloat(z.gex_formatted.replace(/[$,M]/g, '')) || 0;
+            return zGex > maxGex ? z : max;
+          })
+        : null;
+
+    // Find SUPPORT WALL - Highest positive GEX BELOW spot price
+    const zonesBelowSpot = positiveZones.filter(z => z.strike < spotPrice);
+    const supportWall = zonesBelowSpot.length > 0
+        ? zonesBelowSpot.reduce((max, z) => {
+            const maxGex = parseFloat(max.gex_formatted.replace(/[$,M]/g, '')) || 0;
+            const zGex = parseFloat(z.gex_formatted.replace(/[$,M]/g, '')) || 0;
+            return zGex > maxGex ? z : max;
+          })
+        : null;
+
     // Trading context labels and colors
     const contextLabels = {
         'absorption': { label: 'ABSORPTION', class: 'ctx-absorption', hint: 'Expect bounce/fade' },
@@ -1420,6 +1692,10 @@ function renderZones(data) {
         const isMagnet = highestPositiveZone && zone.strike === highestPositiveZone.strike && isPositive;
         // Check if this is the highest negative GEX (Accelerator)
         const isAccelerator = highestNegativeZone && zone.strike === highestNegativeZone.strike && !isPositive;
+        // Check if this is the Resistance Wall (highest positive GEX above spot)
+        const isResistance = resistanceWall && zone.strike === resistanceWall.strike && isPositive;
+        // Check if this is the Support Wall (highest positive GEX below spot)
+        const isSupport = supportWall && zone.strike === supportWall.strike && isPositive;
 
         const ctx = contextLabels[zone.trading_context] || contextLabels['neutral'];
 
@@ -1429,6 +1705,8 @@ function renderZones(data) {
             isGatekeeper ? 'gatekeeper' : '',
             isMagnet ? 'magnet-highlight' : '',
             isAccelerator ? 'accelerator-highlight' : '',
+            isResistance ? 'resistance-highlight' : '',
+            isSupport ? 'support-highlight' : '',
         ].filter(Boolean).join(' ');
 
         const roleClasses = [
@@ -1444,16 +1722,41 @@ function renderZones(data) {
             roleLabel = 'MAGNET';
         } else if (isAccelerator && !isKing && !isGatekeeper) {
             roleLabel = 'ACCEL';
+        } else if (isResistance && !isKing && !isMagnet) {
+            roleLabel = 'RESISTANCE';
+        } else if (isSupport && !isKing && !isMagnet) {
+            roleLabel = 'SUPPORT';
         }
 
-        // Trading context badge - add MAGNET badge if this is the highest positive
+        // Trading context badge with trading bias hint
         let contextBadge = '';
+        let tradingBias = '';
+
         if (isMagnet) {
-            contextBadge = `<span class="trading-context ctx-magnet-primary" title="Highest positive GEX - Price magnet">PRICE TARGET</span>`;
+            contextBadge = `<span class="trading-context ctx-magnet-primary">MAGNET</span>`;
+            tradingBias = zone.strike > spotPrice
+                ? 'Above = drift higher | Below = snap back up'
+                : 'Below = drift lower | Above = snap back down';
+        } else if (isKing) {
+            contextBadge = `<span class="trading-context ctx-king">KING</span>`;
+            tradingBias = 'Strongest level — expect price to gravitate here';
+        } else if (isGatekeeper) {
+            contextBadge = `<span class="trading-context ctx-gatekeeper">GATEKEEPER</span>`;
+            tradingBias = 'Break required for trend — rejection = reversal';
         } else if (isAccelerator) {
-            contextBadge = `<span class="trading-context ctx-acceleration" title="Highest negative GEX - Vol expansion">VOL ZONE</span>`;
+            contextBadge = `<span class="trading-context ctx-acceleration">ACCELERATOR</span>`;
+            tradingBias = 'Fast move if lost — vol expansion zone';
+        } else if (isResistance) {
+            contextBadge = `<span class="trading-context ctx-resistance">RESISTANCE</span>`;
+            tradingBias = 'Above = breakout potential | At = expect fade';
+        } else if (isSupport) {
+            contextBadge = `<span class="trading-context ctx-support">SUPPORT</span>`;
+            tradingBias = 'Below = breakdown risk | At = expect bounce';
+        } else if (!isPositive) {
+            contextBadge = `<span class="trading-context ctx-vol-zone">VOL ZONE</span>`;
+            tradingBias = 'Unstable — momentum risk both ways';
         } else if (ctx.label) {
-            contextBadge = `<span class="trading-context ${ctx.class}" title="${ctx.hint}">${ctx.label}</span>`;
+            contextBadge = `<span class="trading-context ${ctx.class}">${ctx.label}</span>`;
         }
 
         // Get percentage change for this zone
@@ -1481,6 +1784,7 @@ function renderZones(data) {
                         ${zone.gex_formatted}
                     </span>
                 </div>
+                ${tradingBias ? `<div class="zone-bias">${tradingBias}</div>` : ''}
                 <div class="zone-strength">
                     <div class="zone-strength-bar ${isPositive ? 'positive' : 'negative'} ${isMagnet ? 'magnet-bar' : ''}"
                          style="width: ${zone.strength * 100}%"></div>
@@ -1897,7 +2201,7 @@ function switchView(view) {
         if (view === 'dex') elements.heatmapViewTitle.classList.add('dex-view');
     }
 
-    // For flow view, fetch and render flow data
+    // For flow view, fetch flow data
     if (isFlowView && currentSymbol) {
         fetchFlowData(currentSymbol);
     } else if (currentData) {
@@ -1957,7 +2261,7 @@ async function handleAddSymbol(symbol) {
     // Show loading state
     searchEl.classList.add('loading');
     elements.symbolInput.disabled = true;
-    elements.btnAddSymbol.disabled = true;
+    if (elements.btnAddSymbol) elements.btnAddSymbol.disabled = true;
     elements.symbolInput.placeholder = `Loading ${symbol}...`;
 
     try {
@@ -1979,8 +2283,8 @@ async function handleAddSymbol(symbol) {
     } finally {
         searchEl.classList.remove('loading');
         elements.symbolInput.disabled = false;
-        elements.btnAddSymbol.disabled = false;
-        elements.symbolInput.placeholder = 'Add symbol (e.g., AMD)';
+        if (elements.btnAddSymbol) elements.btnAddSymbol.disabled = false;
+        elements.symbolInput.placeholder = '+ Add symbol';
         elements.symbolInput.focus();
     }
 }
@@ -3111,11 +3415,13 @@ function setupEventHandlers() {
         elements.alertsIndicator.style.cursor = 'pointer';
     }
 
-    // Add symbol button
-    elements.btnAddSymbol.addEventListener('click', () => {
-        hideSearchDropdown();
-        handleAddSymbol(elements.symbolInput.value);
-    });
+    // Add symbol button (if it exists)
+    if (elements.btnAddSymbol) {
+        elements.btnAddSymbol.addEventListener('click', () => {
+            hideSearchDropdown();
+            handleAddSymbol(elements.symbolInput.value);
+        });
+    }
 
     // Symbol input - search as you type
     elements.symbolInput.addEventListener('input', (e) => {
@@ -3334,6 +3640,89 @@ function setupEventHandlers() {
             window.location.href = '/login';
         });
     }
+
+    // =========================================================================
+    // NEW SKYLIT-STYLE UI HANDLERS
+    // =========================================================================
+
+    // Interval dropdown options
+    document.querySelectorAll('.interval-option').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const interval = parseInt(btn.dataset.interval);
+            document.querySelectorAll('.interval-option').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            // Update the dropdown button text
+            const selectBtn = document.getElementById('btnIntervalSelect');
+            if (selectBtn) selectBtn.textContent = `${interval}m ▾`;
+            await setRefreshInterval(interval);
+        });
+    });
+
+    // Metric toggle buttons (GEX/VEX/DEX/Flow)
+    document.querySelectorAll('.btn-metric').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const view = btn.dataset.view;
+            document.querySelectorAll('.btn-metric').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            switchView(view);
+        });
+    });
+
+    // All Tickers dropdown
+    const btnAllTickers = document.getElementById('btnAllTickers');
+    const allTickersMenu = document.getElementById('allTickersMenu');
+    if (btnAllTickers && allTickersMenu) {
+        btnAllTickers.addEventListener('click', (e) => {
+            e.stopPropagation();
+            allTickersMenu.classList.toggle('show');
+            renderAllTickersMenu();
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.all-tickers-dropdown')) {
+                allTickersMenu.classList.remove('show');
+            }
+        });
+    }
+}
+
+// Render the All Tickers dropdown menu
+function renderAllTickersMenu() {
+    const menu = document.getElementById('allTickersMenu');
+    if (!menu) return;
+
+    menu.innerHTML = symbols.map(sym => {
+        const symbolName = typeof sym === 'string' ? sym : sym.symbol;
+        const isActive = symbolName === currentSymbol;
+        return `
+            <div class="ticker-item ${isActive ? 'active' : ''}" data-symbol="${symbolName}">
+                <span class="ticker-name">${symbolName}</span>
+                <span class="ticker-remove" data-symbol="${symbolName}" title="Remove">×</span>
+            </div>
+        `;
+    }).join('');
+
+    // Add click handlers
+    menu.querySelectorAll('.ticker-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            if (e.target.classList.contains('ticker-remove')) return;
+            const symbol = item.dataset.symbol;
+            currentSymbol = symbol;
+            loadSymbol(symbol);
+            renderSymbolTabs();
+            menu.classList.remove('show');
+        });
+    });
+
+    menu.querySelectorAll('.ticker-remove').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const symbol = btn.dataset.symbol;
+            await handleRemoveSymbol(symbol);
+            renderAllTickersMenu();
+        });
+    });
 }
 
 // =============================================================================
@@ -3552,6 +3941,15 @@ async function enterPlaybackMode() {
         playbackElements.bar.style.display = 'flex';
     }
 
+    // Highlight replay button
+    if (playbackElements.enterBtn) {
+        playbackElements.enterBtn.classList.add('active');
+    }
+
+    // Hide live indicator, show replay state
+    const liveIndicator = document.getElementById('liveIndicator');
+    if (liveIndicator) liveIndicator.style.display = 'none';
+
     // Add playback mode class to body
     document.body.classList.add('playback-mode');
 
@@ -3632,6 +4030,15 @@ function exitPlaybackMode() {
     if (playbackElements.bar) {
         playbackElements.bar.style.display = 'none';
     }
+
+    // Remove highlight from replay button
+    if (playbackElements.enterBtn) {
+        playbackElements.enterBtn.classList.remove('active');
+    }
+
+    // Show live indicator again
+    const liveIndicator = document.getElementById('liveIndicator');
+    if (liveIndicator) liveIndicator.style.display = 'flex';
 
     // Remove playback mode class
     document.body.classList.remove('playback-mode');
