@@ -24,6 +24,8 @@ async function checkAuth() {
         isAuthenticated = true;
         // Schedule token refresh (every 14 minutes)
         scheduleTokenRefresh();
+        // Fetch current user info
+        await fetchCurrentUser();
         return true;
     }
 
@@ -37,6 +39,7 @@ async function checkAuth() {
         if (data.authenticated) {
             isAuthenticated = true;
             currentUser = data.user;
+            updateUserMenu();
             return true;
         } else if (data.auth_required) {
             // Auth is required but user is not authenticated
@@ -48,6 +51,33 @@ async function checkAuth() {
     }
 
     return false;
+}
+
+// Fetch current user info from /api/me
+async function fetchCurrentUser() {
+    try {
+        const res = await fetch(`${API_BASE}/api/me`, {
+            headers: getAuthHeaders(),
+            credentials: 'include'
+        });
+        if (res.ok) {
+            currentUser = await res.json();
+            updateUserMenu();
+        }
+    } catch (err) {
+        console.log('Failed to fetch user info:', err);
+    }
+}
+
+// Update user menu with current user info
+function updateUserMenu() {
+    const userEmailEl = document.getElementById('userEmail');
+    const adminLink = document.getElementById('adminLink');
+
+    if (currentUser) {
+        if (userEmailEl) userEmailEl.textContent = currentUser.email || 'Signed in';
+        if (adminLink) adminLink.style.display = currentUser.is_admin ? 'block' : 'none';
+    }
 }
 
 // Schedule token refresh before expiry
@@ -3923,6 +3953,112 @@ function setupEventHandlers() {
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && cheatsheetOverlay.classList.contains('show')) {
                 cheatsheetOverlay.classList.remove('show');
+            }
+        });
+    }
+
+    // =========================================================================
+    // USER MENU HANDLERS
+    // =========================================================================
+    const btnUserMenu = document.getElementById('btnUserMenu');
+    const userMenu = document.getElementById('userMenu');
+    const userEmailEl = document.getElementById('userEmail');
+    const adminLink = document.getElementById('adminLink');
+    const btnChangePassword = document.getElementById('btnChangePassword');
+    const changePasswordModal = document.getElementById('changePasswordModal');
+    const btnClosePasswordModal = document.getElementById('btnClosePasswordModal');
+    const btnCancelPassword = document.getElementById('btnCancelPassword');
+    const changePasswordForm = document.getElementById('changePasswordForm');
+
+    // User menu dropdown toggle
+    if (btnUserMenu && userMenu) {
+        btnUserMenu.addEventListener('click', (e) => {
+            e.stopPropagation();
+            userMenu.classList.toggle('show');
+        });
+
+        // Close when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.user-menu-dropdown')) {
+                userMenu.classList.remove('show');
+            }
+        });
+    }
+
+    // Update user menu with current user info
+    if (isAuthenticated && currentUser) {
+        if (userEmailEl) userEmailEl.textContent = currentUser.email || 'Signed in';
+        if (adminLink) adminLink.style.display = currentUser.is_admin ? 'block' : 'none';
+    }
+
+    // Change password button
+    if (btnChangePassword && changePasswordModal) {
+        btnChangePassword.addEventListener('click', () => {
+            userMenu.classList.remove('show');
+            changePasswordModal.style.display = 'flex';
+        });
+    }
+
+    // Close password modal
+    function closePasswordModal() {
+        if (changePasswordModal) {
+            changePasswordModal.style.display = 'none';
+            if (changePasswordForm) changePasswordForm.reset();
+            const errorEl = document.getElementById('passwordError');
+            if (errorEl) errorEl.textContent = '';
+        }
+    }
+
+    if (btnClosePasswordModal) btnClosePasswordModal.addEventListener('click', closePasswordModal);
+    if (btnCancelPassword) btnCancelPassword.addEventListener('click', closePasswordModal);
+
+    // Close on overlay click
+    if (changePasswordModal) {
+        changePasswordModal.addEventListener('click', (e) => {
+            if (e.target === changePasswordModal) closePasswordModal();
+        });
+    }
+
+    // Change password form submission
+    if (changePasswordForm) {
+        changePasswordForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errorEl = document.getElementById('passwordError');
+            const currentPw = document.getElementById('currentPassword').value;
+            const newPw = document.getElementById('newPassword').value;
+            const confirmPw = document.getElementById('confirmPassword').value;
+
+            if (newPw !== confirmPw) {
+                if (errorEl) errorEl.textContent = 'New passwords do not match';
+                return;
+            }
+
+            if (newPw.length < 8) {
+                if (errorEl) errorEl.textContent = 'Password must be at least 8 characters';
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/me/change-password`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        current_password: currentPw,
+                        new_password: newPw
+                    }),
+                    credentials: 'include'
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    closePasswordModal();
+                    alert('Password changed successfully!');
+                } else {
+                    if (errorEl) errorEl.textContent = data.detail || 'Failed to change password';
+                }
+            } catch (err) {
+                if (errorEl) errorEl.textContent = 'Network error. Please try again.';
             }
         });
     }

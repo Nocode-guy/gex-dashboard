@@ -358,6 +358,34 @@ async def update_my_preferences(preferences: UserPreferences, user: dict = Depen
     raise HTTPException(status_code=500, detail="Failed to save preferences")
 
 
+class ChangePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@user_router.post("/change-password")
+async def change_my_password(data: ChangePassword, user: dict = Depends(require_auth)):
+    """Change current user's password"""
+    # Get user from database
+    user_data = await get_user_by_id(user['sub'])
+    if not user_data:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Verify current password
+    if not verify_password(data.current_password, user_data['password_hash']):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    # Validate new password strength
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    # Update password
+    new_hash = hash_password(data.new_password)
+    await update_password(user['sub'], new_hash)
+
+    return {"message": "Password changed successfully"}
+
+
 # ============== Admin API ==============
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])

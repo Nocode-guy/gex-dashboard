@@ -64,6 +64,15 @@
                 <button class="btn-icon" id="btnThemeToggle" title="Theme">
                     <span id="themeIcon">☀</span>
                 </button>
+                <div class="user-menu-dropdown">
+                    <button class="btn-icon" id="btnUserMenu" title="Account">👤</button>
+                    <div class="user-menu" id="userMenu">
+                        <div class="user-menu-header" id="userEmail">Not signed in</div>
+                        <a href="/admin" class="user-menu-item" id="adminLink" style="display:none;">Admin Dashboard</a>
+                        <button class="user-menu-item" id="btnChangePassword">Change Password</button>
+                        <button class="user-menu-item" id="btnLogout">Logout</button>
+                    </div>
+                </div>
                 <div class="interval-dropdown">
                     <button class="btn-interval-select" id="btnIntervalSelect">5m ▾</button>
                     <div class="interval-menu" id="intervalMenu">
@@ -495,6 +504,38 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div class="modal-overlay" id="changePasswordModal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Change Password</h3>
+                <button class="modal-close" id="closePasswordModal">&times;</button>
+            </div>
+            <form id="changePasswordForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Current Password</label>
+                        <input type="password" id="currentPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label>New Password</label>
+                        <input type="password" id="newPassword" required minlength="8">
+                    </div>
+                    <div class="form-group">
+                        <label>Confirm New Password</label>
+                        <input type="password" id="confirmNewPassword" required>
+                    </div>
+                    <div class="modal-error" id="passwordError" style="display:none;"></div>
+                    <div class="modal-success" id="passwordSuccess" style="display:none;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-cancel" id="cancelPasswordChange">Cancel</button>
+                    <button type="submit" class="btn-save">Save Password</button>
+                </div>
+            </form>
         </div>
     </div>
 
