@@ -7,6 +7,92 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
     ? 'http://localhost:8000'
     : '';
 
+// =============================================================================
+// AUTH STATE
+// =============================================================================
+let accessToken = sessionStorage.getItem('gex_access_token') || null;
+let tokenRefreshTimer = null;
+let isAuthenticated = false;
+let currentUser = null;
+
+// Check authentication and refresh token if needed
+async function checkAuth() {
+    // Try to get token from session storage
+    accessToken = sessionStorage.getItem('gex_access_token');
+
+    if (accessToken) {
+        isAuthenticated = true;
+        // Schedule token refresh (every 14 minutes)
+        scheduleTokenRefresh();
+        return true;
+    }
+
+    // Check with server using refresh token cookie
+    try {
+        const res = await fetch(`${API_BASE}/auth/check`, {
+            credentials: 'include'
+        });
+        const data = await res.json();
+
+        if (data.authenticated) {
+            isAuthenticated = true;
+            currentUser = data.user;
+            return true;
+        } else if (data.auth_required) {
+            // Auth is required but user is not authenticated
+            window.location.href = '/login';
+            return false;
+        }
+    } catch (err) {
+        console.log('Auth check failed, continuing without auth');
+    }
+
+    return false;
+}
+
+// Schedule token refresh before expiry
+function scheduleTokenRefresh() {
+    if (tokenRefreshTimer) {
+        clearTimeout(tokenRefreshTimer);
+    }
+    // Refresh 1 minute before expiry (14 minutes)
+    tokenRefreshTimer = setTimeout(refreshAccessToken, 14 * 60 * 1000);
+}
+
+// Refresh the access token
+async function refreshAccessToken() {
+    try {
+        const res = await fetch(`${API_BASE}/auth/refresh`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            accessToken = data.access_token;
+            sessionStorage.setItem('gex_access_token', accessToken);
+            scheduleTokenRefresh();
+        } else {
+            // Refresh failed, redirect to login
+            sessionStorage.removeItem('gex_access_token');
+            window.location.href = '/login';
+        }
+    } catch (err) {
+        console.error('Token refresh failed:', err);
+    }
+}
+
+// Get authorization headers
+function getAuthHeaders() {
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    return headers;
+}
+
 // State - load from localStorage if available
 let currentSymbol = localStorage.getItem('gex_currentSymbol') || 'SPX';
 let refreshInterval = parseInt(localStorage.getItem('gex_refreshInterval')) || 5;
@@ -47,7 +133,10 @@ function getTodayString() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
-// Save state to localStorage
+// Debounce timer for server sync
+let prefSyncTimer = null;
+
+// Save state to localStorage (and optionally sync to server)
 function saveState() {
     localStorage.setItem('gex_currentSymbol', currentSymbol);
     localStorage.setItem('gex_refreshInterval', refreshInterval.toString());
@@ -56,6 +145,81 @@ function saveState() {
     localStorage.setItem('gex_viewMode', viewMode);
     localStorage.setItem('gex_trinitySymbols', JSON.stringify(trinitySymbols));
     localStorage.setItem('gex_trendFilter', trendFilter);
+
+    // Sync to server if authenticated (debounced)
+    if (isAuthenticated && accessToken) {
+        syncPreferencesToServer();
+    }
+}
+
+// Sync preferences to server (debounced to avoid too many requests)
+function syncPreferencesToServer() {
+    if (prefSyncTimer) {
+        clearTimeout(prefSyncTimer);
+    }
+    prefSyncTimer = setTimeout(async () => {
+        try {
+            const theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+            await fetch(`${API_BASE}/api/me/preferences`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                credentials: 'include',
+                body: JSON.stringify({
+                    current_symbol: currentSymbol,
+                    refresh_interval: refreshInterval,
+                    current_view: currentView,
+                    expiration_mode: expirationMode,
+                    view_mode: viewMode,
+                    trinity_symbols: trinitySymbols,
+                    trend_filter: trendFilter,
+                    theme: theme
+                })
+            });
+            console.log('[Prefs] Synced to server');
+        } catch (err) {
+            console.log('[Prefs] Server sync failed:', err);
+        }
+    }, 2000); // 2 second debounce
+}
+
+// Load preferences from server
+async function loadPreferencesFromServer() {
+    if (!isAuthenticated || !accessToken) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/api/me/preferences`, {
+            headers: getAuthHeaders(),
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            const prefs = await res.json();
+            console.log('[Prefs] Loaded from server:', prefs);
+
+            // Apply server preferences (override localStorage)
+            if (prefs.current_symbol) currentSymbol = prefs.current_symbol;
+            if (prefs.refresh_interval) refreshInterval = prefs.refresh_interval;
+            if (prefs.current_view) currentView = prefs.current_view;
+            if (prefs.expiration_mode) expirationMode = prefs.expiration_mode;
+            if (prefs.view_mode) viewMode = prefs.view_mode;
+            if (prefs.trinity_symbols) trinitySymbols = prefs.trinity_symbols;
+            if (prefs.trend_filter) trendFilter = prefs.trend_filter;
+            if (prefs.theme === 'light') {
+                document.body.classList.add('light-theme');
+            }
+
+            // Save to localStorage for offline use
+            localStorage.setItem('gex_currentSymbol', currentSymbol);
+            localStorage.setItem('gex_refreshInterval', refreshInterval.toString());
+            localStorage.setItem('gex_currentView', currentView);
+            localStorage.setItem('gex_expirationMode', expirationMode);
+            localStorage.setItem('gex_viewMode', viewMode);
+            localStorage.setItem('gex_trinitySymbols', JSON.stringify(trinitySymbols));
+            localStorage.setItem('gex_trendFilter', trendFilter);
+        }
+    } catch (err) {
+        console.log('[Prefs] Failed to load from server:', err);
+    }
 }
 
 // Scroll heatmap to center on spot price row
@@ -218,9 +382,35 @@ let selectedSearchIndex = -1;
 // API CALLS
 // =============================================================================
 
-async function fetchAPI(endpoint) {
+async function fetchAPI(endpoint, options = {}) {
     try {
-        const response = await fetch(`${API_BASE}${endpoint}`);
+        const fetchOptions = {
+            ...options,
+            credentials: 'include'
+        };
+
+        // Add auth headers if we have a token
+        if (accessToken) {
+            fetchOptions.headers = {
+                ...fetchOptions.headers,
+                'Authorization': `Bearer ${accessToken}`
+            };
+        }
+
+        const response = await fetch(`${API_BASE}${endpoint}`, fetchOptions);
+
+        // Handle 401/403 - redirect to login
+        if (response.status === 401 || response.status === 403) {
+            console.log('Auth error, checking if login required...');
+            // Only redirect if auth is required
+            const authCheck = await fetch(`${API_BASE}/auth/check`, { credentials: 'include' });
+            const authData = await authCheck.json();
+            if (authData.auth_required && !authData.authenticated) {
+                window.location.href = '/login';
+                return null;
+            }
+        }
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
@@ -3797,6 +3987,15 @@ async function init() {
     setConnectionStatus('', 'Connecting...');
 
     try {
+        // Check authentication status
+        await checkAuth();
+
+        // If authenticated, load preferences from server
+        if (isAuthenticated) {
+            await loadPreferencesFromServer();
+            console.log('User authenticated, preferences loaded from server');
+        }
+
         // Check API health
         const health = await fetchAPI('/');
         console.log('API connected:', health);

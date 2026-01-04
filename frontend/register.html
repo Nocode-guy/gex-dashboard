@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEX Dashboard - Create Account</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e0e0e0;
+        }
+
+        .register-container {
+            background: rgba(30, 30, 50, 0.95);
+            border-radius: 16px;
+            padding: 48px 40px;
+            width: 100%;
+            max-width: 440px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(100, 100, 150, 0.2);
+        }
+
+        .register-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .register-logo {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .register-title {
+            font-size: 28px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .register-subtitle {
+            font-size: 14px;
+            color: #888;
+        }
+
+        .register-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #aaa;
+        }
+
+        .form-input {
+            padding: 14px 16px;
+            font-size: 16px;
+            border: 2px solid rgba(100, 100, 150, 0.3);
+            border-radius: 8px;
+            background: rgba(20, 20, 40, 0.8);
+            color: #fff;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-input:focus {
+            border-color: #6c63ff;
+            box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.2);
+        }
+
+        .form-input::placeholder {
+            color: #666;
+        }
+
+        .form-input.error {
+            border-color: #ff6b6b;
+        }
+
+        .form-input.success {
+            border-color: #50c878;
+        }
+
+        .password-requirements {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .password-requirements ul {
+            list-style: none;
+            padding-left: 0;
+            margin-top: 8px;
+        }
+
+        .password-requirements li {
+            margin: 4px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .password-requirements li::before {
+            content: '';
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: rgba(100, 100, 150, 0.3);
+            display: inline-block;
+        }
+
+        .password-requirements li.valid::before {
+            background: #50c878;
+        }
+
+        .password-requirements li.invalid::before {
+            background: rgba(100, 100, 150, 0.3);
+        }
+
+        .btn-register {
+            padding: 16px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #6c63ff 0%, #5a52d5 100%);
+            color: #fff;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 8px;
+        }
+
+        .btn-register:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(108, 99, 255, 0.4);
+        }
+
+        .btn-register:active {
+            transform: translateY(0);
+        }
+
+        .btn-register:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error-message {
+            background: rgba(255, 80, 80, 0.15);
+            border: 1px solid rgba(255, 80, 80, 0.3);
+            color: #ff6b6b;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .success-panel {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .success-panel.show {
+            display: block;
+        }
+
+        .success-panel .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .success-panel h2 {
+            color: #50c878;
+            margin-bottom: 16px;
+        }
+
+        .success-panel p {
+            color: #888;
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+
+        .success-panel .email-highlight {
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .auth-links {
+            text-align: center;
+            margin-top: 24px;
+            font-size: 14px;
+        }
+
+        .auth-links a {
+            color: #6c63ff;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .auth-links a:hover {
+            color: #8b83ff;
+            text-decoration: underline;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 480px) {
+            .register-container {
+                margin: 16px;
+                padding: 32px 24px;
+            }
+
+            .register-title {
+                font-size: 24px;
+            }
+
+            .register-logo {
+                font-size: 40px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="register-container">
+        <div class="register-header">
+            <div class="register-logo">📊</div>
+            <h1 class="register-title">Create Account</h1>
+            <p class="register-subtitle">Join GEX Dashboard</p>
+        </div>
+
+        <!-- Registration Form -->
+        <form class="register-form" id="registerForm">
+            <div class="error-message" id="errorMessage">
+                Registration failed. Please try again.
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="email">Email Address</label>
+                <input
+                    type="email"
+                    id="email"
+                    class="form-input"
+                    placeholder="you@example.com"
+                    autocomplete="email"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    class="form-input"
+                    placeholder="Create a strong password"
+                    autocomplete="new-password"
+                    required
+                    minlength="8"
+                >
+                <div class="password-requirements">
+                    <ul>
+                        <li id="req-length">At least 8 characters</li>
+                        <li id="req-upper">One uppercase letter</li>
+                        <li id="req-lower">One lowercase letter</li>
+                        <li id="req-number">One number</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="confirmPassword">Confirm Password</label>
+                <input
+                    type="password"
+                    id="confirmPassword"
+                    class="form-input"
+                    placeholder="Confirm your password"
+                    autocomplete="new-password"
+                    required
+                >
+            </div>
+
+            <button type="submit" class="btn-register" id="btnRegister">
+                Create Account
+            </button>
+
+            <div class="auth-links">
+                Already have an account? <a href="/login">Sign in</a>
+            </div>
+        </form>
+
+        <!-- Success Panel (shown after registration) -->
+        <div class="success-panel" id="successPanel">
+            <div class="icon">📧</div>
+            <h2>Check Your Email!</h2>
+            <p>
+                We've sent a verification link to<br>
+                <span class="email-highlight" id="registeredEmail"></span>
+            </p>
+            <p>
+                Click the link in the email to verify your account.
+                After verification, an administrator will review and approve your account.
+            </p>
+            <div class="auth-links" style="margin-top: 32px;">
+                <a href="/login">Return to Login</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API base URL detection
+        const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:8000'
+            : '';
+
+        // Password validation
+        const passwordInput = document.getElementById('password');
+        const confirmInput = document.getElementById('confirmPassword');
+
+        const requirements = {
+            length: { el: document.getElementById('req-length'), regex: /.{8,}/ },
+            upper: { el: document.getElementById('req-upper'), regex: /[A-Z]/ },
+            lower: { el: document.getElementById('req-lower'), regex: /[a-z]/ },
+            number: { el: document.getElementById('req-number'), regex: /\d/ }
+        };
+
+        function validatePassword() {
+            const password = passwordInput.value;
+            let allValid = true;
+
+            for (const [key, req] of Object.entries(requirements)) {
+                const isValid = req.regex.test(password);
+                req.el.className = isValid ? 'valid' : 'invalid';
+                if (!isValid) allValid = false;
+            }
+
+            return allValid;
+        }
+
+        function validateConfirmPassword() {
+            const match = passwordInput.value === confirmInput.value && confirmInput.value.length > 0;
+            confirmInput.className = 'form-input' + (confirmInput.value.length > 0 ? (match ? ' success' : ' error') : '');
+            return match;
+        }
+
+        passwordInput.addEventListener('input', () => {
+            validatePassword();
+            if (confirmInput.value) validateConfirmPassword();
+        });
+
+        confirmInput.addEventListener('input', validateConfirmPassword);
+
+        // Handle registration form submission
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            const btn = document.getElementById('btnRegister');
+            const errorMsg = document.getElementById('errorMessage');
+
+            // Validate password
+            if (!validatePassword()) {
+                errorMsg.textContent = 'Password does not meet all requirements';
+                errorMsg.classList.add('show');
+                return;
+            }
+
+            // Validate password match
+            if (password !== confirmPassword) {
+                errorMsg.textContent = 'Passwords do not match';
+                errorMsg.classList.add('show');
+                confirmInput.focus();
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Creating account...';
+            errorMsg.classList.remove('show');
+
+            try {
+                const res = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                if (res.ok) {
+                    // Show success panel
+                    document.getElementById('registerForm').style.display = 'none';
+                    document.getElementById('registeredEmail').textContent = email;
+                    document.getElementById('successPanel').classList.add('show');
+                } else {
+                    const data = await res.json();
+                    errorMsg.textContent = data.detail || 'Registration failed. Please try again.';
+                    errorMsg.classList.add('show');
+                }
+            } catch (err) {
+                errorMsg.textContent = 'Connection error. Please try again.';
+                errorMsg.classList.add('show');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Create Account';
+            }
+        });
+    </script>
+</body>
+</html>

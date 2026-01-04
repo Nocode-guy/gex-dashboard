@@ -48,6 +48,22 @@ from config import (
 )
 from gex_calculator import GEXCalculator, GEXResult
 
+# PostgreSQL database (for user auth)
+try:
+    from db_postgres import init_db, close_db, get_pool
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
+    print("[WARNING] PostgreSQL module not available - using legacy auth")
+
+# New auth system
+try:
+    from auth.routes import router as auth_router, user_router, admin_router, setup_router
+    NEW_AUTH_AVAILABLE = True
+except ImportError as e:
+    NEW_AUTH_AVAILABLE = False
+    print(f"[WARNING] New auth module not available: {e}")
+
 # Massive (Polygon) options flow client
 try:
     from massive_client import get_massive_client, MassiveClient
@@ -665,6 +681,14 @@ async def lifespan(app: FastAPI):
     # Startup: Initial data fetch
     print("GEX Dashboard starting...")
 
+    # Initialize PostgreSQL database (for user auth)
+    if POSTGRES_AVAILABLE:
+        db_ok = await init_db()
+        if db_ok:
+            print("[OK] PostgreSQL database connected")
+        else:
+            print("[WARNING] PostgreSQL not configured - using legacy auth")
+
     # Initialize regime tracker (fetch VIX)
     print("Fetching VIX for regime detection...")
     regime_tracker.update_regime()
@@ -676,6 +700,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     refresh_manager.stop()
+    if POSTGRES_AVAILABLE:
+        await close_db()
     print("GEX Dashboard stopped")
 
 
@@ -694,6 +720,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount new auth routers (if available and PostgreSQL configured)
+if NEW_AUTH_AVAILABLE:
+    app.include_router(auth_router)      # /auth/* endpoints
+    app.include_router(user_router)      # /api/me/* endpoints
+    app.include_router(admin_router)     # /admin/* endpoints
+    app.include_router(setup_router)     # /setup/* endpoints (one-time admin setup)
+    print("[OK] New auth system mounted (/auth, /api/me, /admin, /setup)")
 
 
 # =============================================================================
@@ -1686,6 +1720,34 @@ if os.path.exists(FRONTEND_DIR):
     async def serve_login():
         """Serve the login page."""
         return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))
+
+    @app.get("/register")
+    async def serve_register():
+        """Serve the registration page."""
+        register_path = os.path.join(FRONTEND_DIR, "register.html")
+        if os.path.exists(register_path):
+            return FileResponse(register_path)
+        # Fallback to login if register.html doesn't exist yet
+        return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))
+
+    @app.get("/admin")
+    async def serve_admin(gex_session: Optional[str] = Cookie(None)):
+        """Serve the admin dashboard (requires admin privileges)."""
+        # For now, check legacy auth - will be updated to use JWT
+        if AUTH_ENABLED and not is_authenticated(gex_session):
+            return RedirectResponse(url="/login", status_code=302)
+        admin_path = os.path.join(FRONTEND_DIR, "admin.html")
+        if os.path.exists(admin_path):
+            return FileResponse(admin_path)
+        return RedirectResponse(url="/app", status_code=302)
+
+    @app.get("/reset-password")
+    async def serve_reset_password():
+        """Serve the password reset page."""
+        reset_path = os.path.join(FRONTEND_DIR, "reset-password.html")
+        if os.path.exists(reset_path):
+            return FileResponse(reset_path)
+        return RedirectResponse(url="/login", status_code=302)
 
     @app.get("/app", response_class=FileResponse)
     @app.get("/app/{path:path}")

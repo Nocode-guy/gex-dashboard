@@ -8,6 +8,19 @@ uvicorn[standard]>=0.27.0
 itsdangerous>=2.1.0
 python-multipart>=0.0.6
 
+# PostgreSQL
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+
+# Authentication
+bcrypt>=4.1.2
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+pydantic[email]>=2.0.0
+
+# Rate limiting
+slowapi>=0.1.9
+
 # HTTP client for Tradier API
 httpx>=0.26.0
 
