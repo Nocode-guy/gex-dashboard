@@ -6083,6 +6083,13 @@ body.trinity-mode .trinity-container {
 
 .cheat-card.selling .cheat-label { color: var(--accent-red); }
 
+.cheat-card.neutral {
+    border-left-color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.cheat-card.neutral .cheat-label { color: var(--text-secondary); }
+
 /* Quick Plays */
 .cheat-play {
     display: flex;
