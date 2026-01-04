@@ -1,15 +1,12 @@
 # Security utilities for GEX Dashboard Auth
 import os
 import secrets
+import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
-from passlib.context import CryptContext
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status, Request, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
-# Password hashing context (bcrypt)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT Configuration
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", secrets.token_hex(32))
@@ -28,12 +25,19 @@ security = HTTPBearer(auto_error=False)
 
 def hash_password(password: str) -> str:
     """Hash a password using bcrypt"""
-    return pwd_context.hash(password)
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password_bytes, salt).decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        password_bytes = plain_password.encode('utf-8')
+        hashed_bytes = hashed_password.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except Exception:
+        return False
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -56,7 +60,7 @@ def create_refresh_token(user_id: str) -> tuple[str, str, datetime]:
     # Generate a random token
     token = secrets.token_urlsafe(32)
     # Hash it for storage
-    token_hash = pwd_context.hash(token)
+    token_hash = hash_password(token)
     # Expiration
     expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
@@ -65,7 +69,7 @@ def create_refresh_token(user_id: str) -> tuple[str, str, datetime]:
 
 def verify_refresh_token(token: str, stored_hash: str) -> bool:
     """Verify a refresh token against its stored hash"""
-    return pwd_context.verify(token, stored_hash)
+    return verify_password(token, stored_hash)
 
 
 def verify_token(token: str, token_type: str = "access") -> Optional[dict]:
