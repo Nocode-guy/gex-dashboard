@@ -733,8 +733,8 @@ if NEW_AUTH_AVAILABLE:
 # =============================================================================
 # API ROUTES
 # =============================================================================
-@app.get("/")
-async def root():
+@app.get("/health")
+async def health_check():
     """Health check and API info."""
     return {
         "status": "ok",
@@ -743,6 +743,17 @@ async def root():
         "active_symbols": refresh_manager.active_symbols,
         "refresh_interval_min": refresh_manager.refresh_interval // 60
     }
+
+
+@app.get("/")
+async def root(refresh_token: Optional[str] = Cookie(None)):
+    """Root redirect - sends to /app or /login based on auth status."""
+    # If new auth is enabled and no refresh token, go to login
+    if NEW_AUTH_AVAILABLE and AUTH_ENABLED:
+        if not refresh_token:
+            return RedirectResponse(url="/login", status_code=302)
+    # Otherwise go to app (frontend will handle auth check)
+    return RedirectResponse(url="/app", status_code=302)
 
 
 @app.get("/status")
@@ -1731,11 +1742,19 @@ if os.path.exists(FRONTEND_DIR):
         return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))
 
     @app.get("/admin")
-    async def serve_admin(gex_session: Optional[str] = Cookie(None)):
+    async def serve_admin(
+        gex_session: Optional[str] = Cookie(None),
+        refresh_token: Optional[str] = Cookie(None)
+    ):
         """Serve the admin dashboard (requires admin privileges)."""
-        # For now, check legacy auth - will be updated to use JWT
-        if AUTH_ENABLED and not is_authenticated(gex_session):
-            return RedirectResponse(url="/login", status_code=302)
+        # Check authentication
+        if AUTH_ENABLED:
+            if NEW_AUTH_AVAILABLE:
+                if not refresh_token:
+                    return RedirectResponse(url="/login", status_code=302)
+            else:
+                if not is_authenticated(gex_session):
+                    return RedirectResponse(url="/login", status_code=302)
         admin_path = os.path.join(FRONTEND_DIR, "admin.html")
         if os.path.exists(admin_path):
             return FileResponse(admin_path)
@@ -1754,12 +1773,20 @@ if os.path.exists(FRONTEND_DIR):
     async def serve_frontend(
         request: Request,
         path: str = "",
-        gex_session: Optional[str] = Cookie(None)
+        gex_session: Optional[str] = Cookie(None),
+        refresh_token: Optional[str] = Cookie(None)
     ):
         """Serve the frontend application (protected by authentication)."""
-        # Check authentication
-        if AUTH_ENABLED and not is_authenticated(gex_session):
-            return RedirectResponse(url="/login", status_code=302)
+        # Check authentication - use new JWT auth if available
+        if AUTH_ENABLED:
+            if NEW_AUTH_AVAILABLE:
+                # New auth: check for refresh token cookie
+                if not refresh_token:
+                    return RedirectResponse(url="/login", status_code=302)
+            else:
+                # Legacy auth: check session cookie
+                if not is_authenticated(gex_session):
+                    return RedirectResponse(url="/login", status_code=302)
 
         # Try to serve the requested file
         file_path = os.path.join(FRONTEND_DIR, path) if path else os.path.join(FRONTEND_DIR, "index.html")
