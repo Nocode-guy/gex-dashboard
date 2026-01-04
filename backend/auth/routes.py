@@ -1,6 +1,7 @@
 # Auth Routes for GEX Dashboard
 from fastapi import APIRouter, HTTPException, status, Response, Request, Cookie, Depends
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone
 
