@@ -122,9 +122,12 @@ async def resend_verification(data: ResendVerification):
 async def login(user_data: UserLogin, response: Response):
     """Login with email and password"""
 
+    print(f"[Auth] Login attempt for: {user_data.email}")
+
     # Get user
     user = await get_user_by_email(user_data.email)
     if not user:
+        print(f"[Auth] User not found: {user_data.email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Check lockout
@@ -140,10 +143,13 @@ async def login(user_data: UserLogin, response: Response):
 
     # Verify password
     if not verify_password(user_data.password, user['password_hash']):
+        print(f"[Auth] Password mismatch for: {user_data.email}")
         # Update failure count
         lock_until = get_lockout_until() if should_lock_account(user['failed_login_attempts'] + 1) else None
         await update_login_failure(str(user['id']), lock_until)
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    print(f"[Auth] Password verified for: {user_data.email}")
 
     # Check email verified
     if not user['email_verified']:
