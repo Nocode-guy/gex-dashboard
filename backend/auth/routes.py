@@ -264,19 +264,33 @@ async def refresh_tokens(
 
 
 @router.get("/check")
-async def check_auth(user: Optional[dict] = Depends(require_auth)):
-    """Check authentication status"""
-    if user:
+async def check_auth_status(
+    refresh_token: Optional[str] = Cookie(None)
+):
+    """
+    Check authentication status - returns JSON, never raises 401.
+    Used by frontend to determine if user is logged in.
+    """
+    from .security import get_current_user, HTTPBearer, HTTPAuthorizationCredentials
+
+    # Check if there's a refresh token cookie (indicates user may be logged in)
+    if refresh_token:
+        # User has refresh token - they need to use it to get access token
+        # The frontend should call /auth/refresh to get a new access token
         return {
-            "authenticated": True,
-            "user": {
-                "id": user.get("sub"),
-                "email": user.get("email"),
-                "is_admin": user.get("is_admin"),
-                "is_approved": user.get("is_approved")
-            }
+            "authenticated": False,
+            "has_refresh_token": True,
+            "auth_required": os.environ.get("GEX_AUTH_ENABLED", "false").lower() == "true",
+            "message": "Use /auth/refresh to get access token"
         }
-    return {"authenticated": False}
+
+    # No refresh token - user is not logged in
+    auth_enabled = os.environ.get("GEX_AUTH_ENABLED", "false").lower() == "true"
+    return {
+        "authenticated": False,
+        "has_refresh_token": False,
+        "auth_required": auth_enabled
+    }
 
 
 # ============== Password Reset ==============
