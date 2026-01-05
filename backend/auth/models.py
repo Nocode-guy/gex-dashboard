@@ -75,7 +75,7 @@ class UserPreferences(BaseModel):
     """User preferences (synced from localStorage)"""
     theme: str = "dark"
     current_symbol: str = "SPX"
-    refresh_interval: int = 5
+    refresh_interval: int = 1
     current_view: str = "gex"
     expiration_mode: str = "all"
     view_mode: str = "single"

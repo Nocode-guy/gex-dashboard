@@ -591,11 +591,23 @@ class RefreshManager:
                 if saved:
                     print(f"[Playback] Saved intraday snapshot for {symbol}")
             except Exception as pb_err:
-                pass  # Silent fail for playback - not critical
+                print(f"[Playback] Error saving snapshot for {symbol}: {pb_err}")
 
             print(f"[{datetime.now().strftime('%H:%M:%S')}] [{get_provider_name()}] Refreshed {symbol}: "
                   f"${spot:.2f}, {len(result.zones)} zones, "
                   f"King: {result.king_node.strike if result.king_node else 'N/A'}")
+
+            # Update Flow Service for WAVE indicator (runs in background)
+            try:
+                from flow_service import get_flow_service
+                if MASSIVE_AVAILABLE:
+                    from massive_client import get_massive_client
+                    client = get_massive_client()
+                    flow_summary = await client.get_flow_summary(symbol=symbol, spot_price=spot)
+                    service = get_flow_service()
+                    await service.process_flow_summary(symbol, flow_summary.to_dict())
+            except Exception as flow_err:
+                pass  # Silent fail - flow is supplementary
 
         except Exception as e:
             print(f"Error refreshing {symbol}: {e}")
@@ -696,10 +708,24 @@ async def lifespan(app: FastAPI):
     await refresh_manager.refresh_all()
     refresh_manager.start()
 
+    # Initialize Flow Service (WAVE indicator background tasks)
+    from flow_service import init_flow_service, get_flow_service
+    await init_flow_service()
+    print("[OK] Flow Service started (WAVE snapshots every 10s)")
+
     yield
 
     # Shutdown
     refresh_manager.stop()
+
+    # Stop Flow Service
+    try:
+        from flow_service import get_flow_service
+        service = get_flow_service()
+        await service.stop()
+    except Exception as e:
+        print(f"[WARNING] Flow service shutdown error: {e}")
+
     if POSTGRES_AVAILABLE:
         await close_db()
     print("GEX Dashboard stopped")
@@ -923,27 +949,67 @@ async def get_candles(
     if not DATA_PROVIDER_AVAILABLE:
         raise HTTPException(status_code=503, detail="Market data not available")
 
-    client = get_options_client()
-
-    # Fetch candles
-    candles = await client.get_candles(symbol, resolution=resolution, count=count)
+    # Use Tradier for candles (MassiveGEXProvider doesn't support candles)
+    try:
+        from tradier_client import get_tradier_client
+        tradier = get_tradier_client()
+        candles = await tradier.get_candles(symbol, resolution=resolution, count=count)
+    except Exception as e:
+        print(f"[Candles] Tradier client error: {e}")
+        # Fallback to empty candles with just levels
+        candles = []
 
     if not candles:
         raise HTTPException(status_code=404, detail=f"No candle data for {symbol}")
 
-    # Get current GEX levels for chart overlay
+    # Get current GEX levels for chart overlay - MATCHING KEY ZONES LOGIC
     result = cache.get(symbol)
     levels = {}
     if result:
-        levels = {
-            "king": result.king_node.strike if result.king_node else None,
-            "king_gex": result.king_node.gex if result.king_node else None,
-            "gatekeeper": result.gatekeeper_node.strike if result.gatekeeper_node else None,
-            "zero_gamma": result.zero_gamma_level,
-            "gex_flip": result.gex_flip_level,
-            "expected_move": result.expected_move,
-            "spot_price": result.spot_price
-        }
+        spot_price = result.spot_price or 0
+
+        # Find levels from ALL zones for accurate chart overlay
+        # This matches what's visible on the heatmap (not just Key Zones top 10)
+        if result.zones:
+            # Use ALL zones to find the most significant levels
+            all_zones = result.zones  # Full list (20 zones)
+            positive_zones = [z for z in all_zones if z.gex > 0]
+            negative_zones = [z for z in all_zones if z.gex < 0]
+
+            # MAGNET = Highest positive GEX (price target / absorption)
+            magnet = max(positive_zones, key=lambda z: z.gex) if positive_zones else None
+
+            # RESISTANCE = Highest positive GEX ABOVE spot price
+            zones_above = [z for z in positive_zones if z.strike > spot_price]
+            resistance = max(zones_above, key=lambda z: z.gex) if zones_above else None
+
+            # SUPPORT = Highest positive GEX BELOW spot price
+            zones_below = [z for z in positive_zones if z.strike < spot_price]
+            support = max(zones_below, key=lambda z: z.gex) if zones_below else None
+
+            # ACCELERATOR = Highest negative GEX (vol expansion zone)
+            accelerator = min(negative_zones, key=lambda z: z.gex) if negative_zones else None
+
+            levels = {
+                "magnet": magnet.strike if magnet else None,
+                "magnet_gex": magnet.gex if magnet else None,
+                "resistance": resistance.strike if resistance else None,
+                "resistance_gex": resistance.gex if resistance else None,
+                "support": support.strike if support else None,
+                "support_gex": support.gex if support else None,
+                "accelerator": accelerator.strike if accelerator else None,
+                "accelerator_gex": accelerator.gex if accelerator else None,
+                "zero_gamma": result.zero_gamma_level,
+                "expected_move": result.expected_move,
+                "spot_price": spot_price
+            }
+        else:
+            levels = {
+                "magnet": result.king_node.strike if result.king_node else None,
+                "zero_gamma": result.zero_gamma_level,
+                "expected_move": result.expected_move,
+                "spot_price": spot_price
+            }
 
     return {
         "symbol": symbol,
@@ -1301,6 +1367,53 @@ async def get_alerts(
 # =============================================================================
 # ORDER FLOW ENDPOINTS
 # =============================================================================
+
+# NOTE: Specific routes must be defined BEFORE dynamic {symbol} routes
+
+@app.get("/flow/tape")
+async def get_trade_tape(
+    symbol: str = Query(default=None, description="Filter by symbol (optional)"),
+    min_premium: float = Query(default=10000, description="Minimum premium filter"),
+    limit: int = Query(default=50, description="Max trades to return")
+):
+    """
+    Get recent large trades for the live tape.
+    """
+    from flow_service import get_flow_service
+
+    service = get_flow_service()
+    trades = await service.get_recent_trades(symbol=symbol, min_premium=int(min_premium), limit=limit)
+
+    # Convert datetime objects to ISO strings
+    for trade in trades:
+        if 'timestamp' in trade and hasattr(trade['timestamp'], 'isoformat'):
+            trade['timestamp'] = trade['timestamp'].isoformat()
+        if 'expiration' in trade and hasattr(trade['expiration'], 'isoformat'):
+            trade['expiration'] = trade['expiration'].isoformat()
+
+    return {"trades": trades, "count": len(trades)}
+
+
+@app.get("/flow/leaderboard")
+async def get_flow_leaderboard(
+    limit: int = Query(default=20, description="Max symbols to return")
+):
+    """
+    Get top symbols by flow activity.
+    """
+    from flow_service import get_flow_service
+
+    service = get_flow_service()
+    entries = await service.get_leaderboard(limit=limit)
+
+    # Convert datetime objects
+    for entry in entries:
+        if 'timestamp' in entry and hasattr(entry['timestamp'], 'isoformat'):
+            entry['timestamp'] = entry['timestamp'].isoformat()
+
+    return {"leaderboard": entries, "count": len(entries)}
+
+
 @app.get("/flow/{symbol}")
 async def get_flow(
     symbol: str,
@@ -1330,6 +1443,15 @@ async def get_flow(
             )
             result = summary.to_dict()
             result["data_source"] = "massive"
+
+            # Update WAVE service with flow data
+            try:
+                from flow_service import get_flow_service
+                service = get_flow_service()
+                await service.process_flow_summary(symbol, result)
+            except Exception as wave_err:
+                print(f"[WAVE] Update error: {wave_err}")
+
             return result
         except Exception as e:
             print(f"[Massive] Error: {e} - trying Unusual Whales fallback")
@@ -1343,6 +1465,15 @@ async def get_flow(
             summary = await client.get_flow_summary(symbol)
             result = summary.to_dict()
             result["data_source"] = "unusual_whales"
+
+            # Update WAVE service with flow data
+            try:
+                from flow_service import get_flow_service
+                service = get_flow_service()
+                await service.process_flow_summary(symbol, result)
+            except Exception as wave_err:
+                print(f"[WAVE] Update error: {wave_err}")
+
             return result
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching flow: {str(e)}")
@@ -1351,6 +1482,43 @@ async def get_flow(
         status_code=503,
         detail="Options flow not available. Configure MASSIVE_API_KEY or UNUSUAL_WHALES_API_KEY."
     )
+
+
+@app.get("/flow/{symbol}/wave")
+async def get_wave_indicator(
+    symbol: str,
+    minutes: int = Query(default=60, description="Minutes of history to return")
+):
+    """
+    Get WAVE indicator data for charting.
+    Shows cumulative call vs put premium over time.
+    """
+    from flow_service import get_flow_service
+
+    symbol = symbol.upper()
+    service = get_flow_service()
+
+    # Get WAVE data
+    data = await service.get_wave_data(symbol, minutes)
+
+    # If no history, fetch current flow to populate
+    if not data.get('wave_history') and not data.get('current_wave'):
+        # Trigger a flow fetch to populate WAVE data
+        if MASSIVE_AVAILABLE:
+            try:
+                spot_price = 0
+                cached = cache.get(symbol)
+                if cached:
+                    spot_price = cached.spot_price
+
+                client = get_massive_client()
+                summary = await client.get_flow_summary(symbol=symbol, spot_price=spot_price)
+                await service.process_flow_summary(symbol, summary.to_dict())
+                data = await service.get_wave_data(symbol, minutes)
+            except Exception as e:
+                print(f"[WAVE] Error fetching initial flow: {e}")
+
+    return data
 
 
 @app.get("/flow/{symbol}/levels")

@@ -100,7 +100,7 @@ async def create_admin():
         # Initialize default preferences
         await conn.execute("""
             INSERT INTO user_preferences (user_id, theme, current_symbol, refresh_interval)
-            VALUES ($1, 'dark', 'SPX', 5)
+            VALUES ($1, 'dark', 'SPX', 1)
             ON CONFLICT (user_id) DO NOTHING
         """, result['id'])
         print("[OK] Created default preferences")

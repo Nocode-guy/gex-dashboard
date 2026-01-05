@@ -35,7 +35,7 @@ else:
         print("[Security] WARNING: Using random JWT_SECRET_KEY (dev mode only)")
 
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60  # Extended from 15 to 60 minutes
+ACCESS_TOKEN_EXPIRE_MINUTES = 240  # 4 hours - extended to reduce user frustration
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 # Rate limiting
@@ -75,6 +75,12 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
+def hash_refresh_token(token: str) -> str:
+    """Hash refresh token with SHA256 for storage/lookup (deterministic)"""
+    import hashlib
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def create_refresh_token(user_id: str) -> tuple[str, str, datetime]:
     """
     Create a refresh token
@@ -82,8 +88,8 @@ def create_refresh_token(user_id: str) -> tuple[str, str, datetime]:
     """
     # Generate a random token
     token = secrets.token_urlsafe(32)
-    # Hash it for storage
-    token_hash = hash_password(token)
+    # Hash it with SHA256 for storage (deterministic, allows lookup)
+    token_hash = hash_refresh_token(token)
     # Expiration
     expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
@@ -92,7 +98,7 @@ def create_refresh_token(user_id: str) -> tuple[str, str, datetime]:
 
 def verify_refresh_token(token: str, stored_hash: str) -> bool:
     """Verify a refresh token against its stored hash"""
-    return verify_password(token, stored_hash)
+    return hash_refresh_token(token) == stored_hash
 
 
 def verify_token(token: str, token_type: str = "access") -> Optional[dict]:

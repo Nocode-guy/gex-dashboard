@@ -104,55 +104,154 @@ class TradierClient:
         if self.use_mock:
             return []
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                # Map resolution to Tradier interval
-                interval_map = {
-                    "1": "1min", "5": "5min", "15": "15min",
-                    "60": "hourly", "D": "daily", "W": "weekly", "M": "monthly"
-                }
-                interval = interval_map.get(resolution, "5min")
+                # Determine if this is intraday or daily+ data
+                is_intraday = resolution in ["1", "5", "15", "60"]
 
-                # Get historical data
-                params = {
-                    "symbol": symbol,
-                    "interval": interval,
-                    "start": (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d"),
-                    "end": datetime.now().strftime("%Y-%m-%d")
-                }
+                if is_intraday:
+                    # Use /markets/timesales for intraday data
+                    interval_map = {"1": "1min", "5": "5min", "15": "15min", "60": "1min"}
+                    interval = interval_map.get(resolution, "5min")
 
-                response = await client.get(
-                    f"{self.base_url}/markets/history",
-                    headers=self._get_headers(),
-                    params=params
-                )
-                response.raise_for_status()
-                data = response.json()
+                    # Timesales requires start/end as timestamps or dates
+                    # Get last 5 trading days of data
+                    end_time = datetime.now()
+                    start_time = end_time - timedelta(days=5)
 
-                history = data.get("history", {})
-                if not history:
-                    return []
+                    params = {
+                        "symbol": symbol,
+                        "interval": interval,
+                        "start": start_time.strftime("%Y-%m-%d %H:%M"),
+                        "end": end_time.strftime("%Y-%m-%d %H:%M"),
+                        "session_filter": "all"  # Include pre/post market
+                    }
 
-                days = history.get("day", [])
-                if isinstance(days, dict):
-                    days = [days]
+                    response = await client.get(
+                        f"{self.base_url}/markets/timesales",
+                        headers=self._get_headers(),
+                        params=params
+                    )
+                    response.raise_for_status()
+                    data = response.json()
 
-                # Convert to candle format
-                candles = []
-                for day in days[-count:]:
-                    candles.append({
-                        "time": day.get("date"),
-                        "open": day.get("open"),
-                        "high": day.get("high"),
-                        "low": day.get("low"),
-                        "close": day.get("close"),
-                        "volume": day.get("volume", 0)
-                    })
-                return candles
+                    series = data.get("series", {})
+                    if not series:
+                        print(f"[Candles] No timesales data for {symbol}")
+                        return []
+
+                    ticks = series.get("data", [])
+                    if isinstance(ticks, dict):
+                        ticks = [ticks]
+
+                    # For 60-minute candles, aggregate 1-min data
+                    if resolution == "60":
+                        ticks = self._aggregate_to_hourly(ticks)
+
+                    # Convert to candle format (timesales returns OHLCV)
+                    candles = []
+                    for tick in ticks[-count:]:
+                        time_str = tick.get("time", "")
+                        # Parse timestamp to Unix for lightweight-charts
+                        try:
+                            dt = datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S")
+                            unix_time = int(dt.timestamp())
+                        except:
+                            unix_time = time_str
+
+                        candles.append({
+                            "time": unix_time,
+                            "open": float(tick.get("open", 0)),
+                            "high": float(tick.get("high", 0)),
+                            "low": float(tick.get("low", 0)),
+                            "close": float(tick.get("close", tick.get("price", 0))),
+                            "volume": int(tick.get("volume", 0))
+                        })
+                    return candles
+
+                else:
+                    # Use /markets/history for daily, weekly, monthly data
+                    interval_map = {"D": "daily", "W": "weekly", "M": "monthly"}
+                    interval = interval_map.get(resolution, "daily")
+
+                    params = {
+                        "symbol": symbol,
+                        "interval": interval,
+                        "start": (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d"),
+                        "end": datetime.now().strftime("%Y-%m-%d")
+                    }
+
+                    response = await client.get(
+                        f"{self.base_url}/markets/history",
+                        headers=self._get_headers(),
+                        params=params
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                    history = data.get("history", {})
+                    if not history:
+                        print(f"[Candles] No history data for {symbol}")
+                        return []
+
+                    days = history.get("day", [])
+                    if isinstance(days, dict):
+                        days = [days]
+
+                    # Convert to candle format
+                    candles = []
+                    for day in days[-count:]:
+                        date_str = day.get("date", "")
+                        try:
+                            dt = datetime.strptime(date_str, "%Y-%m-%d")
+                            unix_time = int(dt.timestamp())
+                        except:
+                            unix_time = date_str
+
+                        candles.append({
+                            "time": unix_time,
+                            "open": float(day.get("open", 0)),
+                            "high": float(day.get("high", 0)),
+                            "low": float(day.get("low", 0)),
+                            "close": float(day.get("close", 0)),
+                            "volume": int(day.get("volume", 0))
+                        })
+                    return candles
 
             except Exception as e:
                 print(f"Error fetching candles for {symbol}: {e}")
                 return []
+
+    def _aggregate_to_hourly(self, ticks: List[Dict]) -> List[Dict]:
+        """Aggregate 1-minute ticks to hourly candles."""
+        if not ticks:
+            return []
+
+        hourly = {}
+        for tick in ticks:
+            time_str = tick.get("time", "")
+            try:
+                dt = datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S")
+                hour_key = dt.strftime("%Y-%m-%dT%H:00:00")
+
+                if hour_key not in hourly:
+                    hourly[hour_key] = {
+                        "time": hour_key,
+                        "open": float(tick.get("open", 0)),
+                        "high": float(tick.get("high", 0)),
+                        "low": float(tick.get("low", 0)),
+                        "close": float(tick.get("close", tick.get("price", 0))),
+                        "volume": int(tick.get("volume", 0))
+                    }
+                else:
+                    hourly[hour_key]["high"] = max(hourly[hour_key]["high"], float(tick.get("high", 0)))
+                    hourly[hour_key]["low"] = min(hourly[hour_key]["low"], float(tick.get("low", 0)))
+                    hourly[hour_key]["close"] = float(tick.get("close", tick.get("price", 0)))
+                    hourly[hour_key]["volume"] += int(tick.get("volume", 0))
+            except:
+                continue
+
+        return list(hourly.values())
 
     def search_symbol(self, query: str, max_results: int = 8) -> List[Dict[str, Any]]:
         """

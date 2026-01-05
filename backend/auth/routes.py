@@ -11,7 +11,7 @@ from .models import (
 )
 from .security import (
     hash_password, verify_password, create_access_token, create_refresh_token,
-    verify_refresh_token, generate_verification_token, generate_password_reset_token,
+    verify_refresh_token, hash_refresh_token, generate_verification_token, generate_password_reset_token,
     require_auth, require_admin, ACCESS_TOKEN_EXPIRE_MINUTES,
     check_account_lockout, should_lock_account, get_lockout_until
 )
@@ -275,13 +275,39 @@ async def refresh_tokens(
         raise HTTPException(status_code=401, detail="No refresh token")
 
     # Hash the token and look up in database
-    from .security import pwd_context
-    # This is inefficient - in production you'd store a searchable token ID
-    # For now, we'll verify against stored hashes
+    token_hash = hash_refresh_token(refresh_token)
 
-    # Get user from token (simplified - in production use proper token lookup)
-    # This requires storing the token differently
-    raise HTTPException(status_code=501, detail="Token refresh not fully implemented")
+    # Look up the token in database
+    token_data = await get_refresh_token(token_hash)
+
+    if not token_data:
+        # Token not found or revoked - clear cookie and require re-login
+        response.delete_cookie(key="refresh_token", path="/")
+        raise HTTPException(status_code=401, detail="Invalid or revoked refresh token")
+
+    # Check if token is expired
+    if token_data['expires_at'] < datetime.now(timezone.utc):
+        await revoke_refresh_token(str(token_data['id']))
+        response.delete_cookie(key="refresh_token", path="/")
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    # Check if user is still approved
+    if not token_data.get('is_approved'):
+        raise HTTPException(status_code=403, detail="Account pending approval")
+
+    # Create new access token
+    new_access_token = create_access_token({
+        "sub": str(token_data['user_id']),
+        "email": token_data['email'],
+        "is_admin": token_data.get('is_admin', False),
+        "is_approved": token_data.get('is_approved', False)
+    })
+
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    }
 
 
 @router.get("/check")
@@ -643,7 +669,7 @@ async def initialize_admin(secret: str):
         # Create preferences
         await conn.execute("""
             INSERT INTO user_preferences (user_id, theme, current_symbol, refresh_interval)
-            VALUES ($1, 'dark', 'SPX', 5)
+            VALUES ($1, 'dark', 'SPX', 1)
             ON CONFLICT (user_id) DO NOTHING
         """, user_id)
 

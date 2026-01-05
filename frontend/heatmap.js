@@ -2,9 +2,9 @@
  * GEX Dashboard - Heatmap JavaScript
  */
 
-// Auto-detect API URL: use relative path in production, localhost in development
+// Auto-detect API URL: use current origin in development, relative path in production
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8000'
+    ? `${window.location.protocol}//${window.location.host}`
     : '';
 
 // =============================================================================
@@ -22,26 +22,42 @@ async function checkAuth() {
 
     if (accessToken) {
         isAuthenticated = true;
-        // Schedule token refresh (every 14 minutes)
+        // Schedule token refresh (55 min before 60 min expiry)
         scheduleTokenRefresh();
         // Fetch current user info
         await fetchCurrentUser();
         return true;
     }
 
-    // Check with server using refresh token cookie
+    // No access token - try to get one using refresh token cookie
+    try {
+        const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        if (refreshRes.ok) {
+            const data = await refreshRes.json();
+            accessToken = data.access_token;
+            sessionStorage.setItem('gex_access_token', accessToken);
+            isAuthenticated = true;
+            scheduleTokenRefresh();
+            await fetchCurrentUser();
+            console.log('Session restored from refresh token');
+            return true;
+        }
+    } catch (err) {
+        console.log('Token refresh failed:', err);
+    }
+
+    // Check if auth is required
     try {
         const res = await fetch(`${API_BASE}/auth/check`, {
             credentials: 'include'
         });
         const data = await res.json();
 
-        if (data.authenticated) {
-            isAuthenticated = true;
-            currentUser = data.user;
-            updateUserMenu();
-            return true;
-        } else if (data.auth_required) {
+        if (data.auth_required) {
             // Auth is required but user is not authenticated
             window.location.href = '/login';
             return false;
@@ -85,8 +101,8 @@ function scheduleTokenRefresh() {
     if (tokenRefreshTimer) {
         clearTimeout(tokenRefreshTimer);
     }
-    // Refresh 1 minute before expiry (14 minutes)
-    tokenRefreshTimer = setTimeout(refreshAccessToken, 14 * 60 * 1000);
+    // Refresh 10 minutes before expiry (230 minutes, token expires at 240 / 4 hours)
+    tokenRefreshTimer = setTimeout(refreshAccessToken, 230 * 60 * 1000);
 }
 
 // Refresh the access token
@@ -125,8 +141,8 @@ function getAuthHeaders() {
 
 // State - load from localStorage if available
 let currentSymbol = localStorage.getItem('gex_currentSymbol') || 'SPX';
-let refreshInterval = parseInt(localStorage.getItem('gex_refreshInterval')) || 5;
-let frontendRefreshSec = 3; // Frontend polling (seconds) - real-time updates
+let refreshInterval = parseInt(localStorage.getItem('gex_refreshInterval')) || 1;
+let frontendRefreshSec = 10; // Frontend polling (seconds) - balance between freshness and performance
 let autoRefreshTimer = null;
 let symbols = [];
 let lastPrices = {}; // Track price changes
@@ -412,7 +428,7 @@ let selectedSearchIndex = -1;
 // API CALLS
 // =============================================================================
 
-async function fetchAPI(endpoint, options = {}) {
+async function fetchAPI(endpoint, options = {}, retried = false) {
     try {
         const fetchOptions = {
             ...options,
@@ -429,10 +445,35 @@ async function fetchAPI(endpoint, options = {}) {
 
         const response = await fetch(`${API_BASE}${endpoint}`, fetchOptions);
 
-        // Handle 401/403 - redirect to login
-        if (response.status === 401 || response.status === 403) {
-            console.log('Auth error, checking if login required...');
-            // Only redirect if auth is required
+        // Handle 401 - try to refresh token and retry once
+        if (response.status === 401 && !retried) {
+            console.log('Token expired, attempting refresh...');
+            try {
+                const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                if (refreshRes.ok) {
+                    const data = await refreshRes.json();
+                    accessToken = data.access_token;
+                    sessionStorage.setItem('gex_access_token', accessToken);
+                    scheduleTokenRefresh();
+                    console.log('Token refreshed, retrying request...');
+                    // Retry the original request with new token
+                    return fetchAPI(endpoint, options, true);
+                }
+            } catch (refreshErr) {
+                console.error('Token refresh failed:', refreshErr);
+            }
+            // Refresh failed, redirect to login
+            window.location.href = '/login';
+            return null;
+        }
+
+        // Handle 403 - check if auth required
+        if (response.status === 403) {
+            console.log('Forbidden, checking auth status...');
             const authCheck = await fetch(`${API_BASE}/auth/check`, { credentials: 'include' });
             const authData = await authCheck.json();
             if (authData.auth_required && !authData.authenticated) {
@@ -654,6 +695,795 @@ async function searchSymbols(query) {
 // =============================================================================
 
 let flowData = null;
+let waveChart = null;
+let waveCallSeries = null;
+let wavePutSeries = null;
+let waveNetSeries = null;
+let waveTimeframe = 60; // Default 1 hour
+let waveRefreshInterval = null; // Auto-refresh timer
+
+// Start WAVE auto-refresh (every 10 seconds)
+function startWaveAutoRefresh() {
+    stopWaveAutoRefresh(); // Clear any existing interval
+    if (currentSymbol && currentView === 'flow') {
+        waveRefreshInterval = setInterval(() => {
+            fetchWaveData(currentSymbol, waveTimeframe);
+            fetchFlowData(currentSymbol); // Also refresh flow stats
+            fetchLeaderboard(); // Also refresh leaderboard
+        }, 10000); // 10 seconds
+        console.log('[WAVE] Auto-refresh started');
+    }
+}
+
+// Stop WAVE auto-refresh
+function stopWaveAutoRefresh() {
+    if (waveRefreshInterval) {
+        clearInterval(waveRefreshInterval);
+        waveRefreshInterval = null;
+        console.log('[WAVE] Auto-refresh stopped');
+    }
+}
+
+// =============================================================================
+// PRICE CHART (Candlestick with GEX Levels)
+// =============================================================================
+
+let priceChart = null;
+let candleSeries = null;
+let chartLevelLines = [];  // For GEX level lines
+let chartResolution = '5';
+let chartRefreshInterval = null;
+let chartLoadedSymbol = null;  // Track which symbol chart is showing
+
+// Start chart auto-refresh (every 10 seconds)
+function startChartAutoRefresh() {
+    stopChartAutoRefresh();
+    if (currentSymbol && currentView === 'chart') {
+        chartRefreshInterval = setInterval(() => {
+            // Use loadAndRenderChart instead of fetchCandleData
+            loadAndRenderChart(currentSymbol, chartResolution);
+        }, 30000); // 30 second refresh
+        console.log('[Chart] Auto-refresh started (30s interval)');
+    }
+}
+
+// Stop chart auto-refresh
+function stopChartAutoRefresh() {
+    if (chartRefreshInterval) {
+        clearInterval(chartRefreshInterval);
+        chartRefreshInterval = null;
+        console.log('[Chart] Auto-refresh stopped');
+    }
+}
+
+// Initialize price chart
+function initPriceChart() {
+    const container = document.getElementById('priceChart');
+    if (!container || priceChart) return;
+
+    container.innerHTML = '';
+
+    if (typeof LightweightCharts === 'undefined') {
+        console.error('[Chart] LightweightCharts not loaded');
+        container.innerHTML = '<div class="chart-loading">Chart library not loaded</div>';
+        return;
+    }
+
+    try {
+        priceChart = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: container.clientHeight || 500,
+            layout: {
+                background: { type: 'solid', color: 'transparent' },
+                textColor: '#a0a0a0'
+            },
+            grid: {
+                vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+                horzLines: { color: 'rgba(255, 255, 255, 0.05)' }
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+                vertLine: { color: 'rgba(255, 255, 255, 0.2)', width: 1, style: 2 },
+                horzLine: { color: 'rgba(255, 255, 255, 0.2)', width: 1, style: 2 }
+            },
+            rightPriceScale: {
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+                scaleMargins: { top: 0.1, bottom: 0.1 }
+            },
+            timeScale: {
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+                timeVisible: true,
+                secondsVisible: false
+            }
+        });
+
+        // Create candlestick series
+        candleSeries = priceChart.addCandlestickSeries({
+            upColor: '#22c55e',
+            downColor: '#ef4444',
+            borderUpColor: '#22c55e',
+            borderDownColor: '#ef4444',
+            wickUpColor: '#22c55e',
+            wickDownColor: '#ef4444'
+        });
+
+        // Handle resize
+        const resizeObserver = new ResizeObserver(() => {
+            if (priceChart && container.clientWidth > 0 && container.clientHeight > 0) {
+                priceChart.applyOptions({
+                    width: container.clientWidth,
+                    height: container.clientHeight
+                });
+            }
+        });
+        resizeObserver.observe(container);
+
+        console.log('[Chart] Price chart initialized');
+    } catch (error) {
+        console.error('[Chart] Init error:', error);
+        container.innerHTML = '<div class="chart-loading">Failed to initialize chart</div>';
+    }
+}
+
+// Fetch candle data from API
+async function fetchCandleData(symbol, resolution = '5', count = 200) {
+    if (!symbol) return;
+
+    try {
+        const data = await fetchAPI(`/candles/${symbol}?resolution=${resolution}&count=${count}`);
+        updatePriceChart(data);
+        updateGexOverlays(data.levels);
+    } catch (error) {
+        console.error('[Chart] Fetch error:', error);
+    }
+}
+
+// Update price chart with candle data
+function updatePriceChart(data) {
+    if (!priceChart || !candleSeries || !data) return;
+
+    const candles = data.candles || [];
+    if (candles.length === 0) return;
+
+    // Convert candles to lightweight-charts format
+    const chartData = candles.map(c => ({
+        time: typeof c.time === 'string' ? Math.floor(new Date(c.time).getTime() / 1000) : c.time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close
+    }));
+
+    candleSeries.setData(chartData);
+    priceChart.timeScale().fitContent();
+}
+
+// Update GEX level overlays on chart
+function updateGexOverlays(levels) {
+    if (!priceChart || !candleSeries || !levels) return;
+
+    // Remove existing price lines
+    chartLevelLines.forEach(line => {
+        try {
+            candleSeries.removePriceLine(line);
+        } catch (e) {}
+    });
+    chartLevelLines = [];
+
+    // Magnet (King) - Cyan with glow effect
+    if (levels.king) {
+        const kingLine = candleSeries.createPriceLine({
+            price: levels.king,
+            color: '#00ffff',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: '🧲 MAGNET'
+        });
+        chartLevelLines.push(kingLine);
+    }
+
+    // Resistance - Orange
+    if (levels.gatekeeper) {
+        const gkLine = candleSeries.createPriceLine({
+            price: levels.gatekeeper,
+            color: '#f97316',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: 'RESIST'
+        });
+        chartLevelLines.push(gkLine);
+    }
+
+    // Zero Gamma / Flip - White dashed
+    if (levels.zero_gamma) {
+        const zgLine = candleSeries.createPriceLine({
+            price: levels.zero_gamma,
+            color: '#ffffff',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '0γ FLIP'
+        });
+        chartLevelLines.push(zgLine);
+    }
+
+    // Expected Move bounds - subtle gray
+    if (levels.expected_move && levels.expected_move.daily) {
+        const upperEM = candleSeries.createPriceLine({
+            price: levels.expected_move.daily.high,
+            color: '#555555',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dotted,
+            axisLabelVisible: false,
+            title: '+EM'
+        });
+        chartLevelLines.push(upperEM);
+
+        const lowerEM = candleSeries.createPriceLine({
+            price: levels.expected_move.daily.low,
+            color: '#555555',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dotted,
+            axisLabelVisible: false,
+            title: '-EM'
+        });
+        chartLevelLines.push(lowerEM);
+    }
+
+    // Acceleration Zone - Purple (top call wall)
+    if (levels.call_walls && levels.call_walls.length > 0) {
+        const topCallWall = levels.call_walls[0];
+        // Skip if same as King or Gatekeeper
+        if (topCallWall.strike !== levels.king && topCallWall.strike !== levels.gatekeeper) {
+            const accelLine = candleSeries.createPriceLine({
+                price: topCallWall.strike,
+                color: '#a855f7',
+                lineWidth: 3,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: '⚡ ACCEL'
+            });
+            chartLevelLines.push(accelLine);
+        }
+    }
+
+    // Support - Red (top put wall)
+    if (levels.put_walls && levels.put_walls.length > 0) {
+        const topPutWall = levels.put_walls[0];
+        // Skip if same as King or Gatekeeper
+        if (topPutWall.strike !== levels.king && topPutWall.strike !== levels.gatekeeper) {
+            const supportLine = candleSeries.createPriceLine({
+                price: topPutWall.strike,
+                color: '#ef4444',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'SUPPORT'
+            });
+            chartLevelLines.push(supportLine);
+        }
+    }
+}
+
+// Setup chart timeframe buttons
+function setupChartTimeframeButtons() {
+    const buttons = document.querySelectorAll('.chart-tf-btn');
+    buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            buttons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            chartResolution = btn.dataset.resolution;
+            window.chartInitialized = false; // Reset fit on timeframe change
+            if (currentSymbol) {
+                loadAndRenderChart(currentSymbol, chartResolution);
+            }
+        });
+    });
+}
+
+// =============================================================================
+// TRADE TAPE
+// =============================================================================
+
+let tapeData = [];
+let tapePaused = false;
+let tapeMinPremium = 100000; // Default $100K filter
+let lastTapeTradeIds = new Set(); // Track seen trades to avoid duplicates
+
+// Fetch trades from API (disabled until real trade data available)
+async function fetchTradeTape(symbol = null) {
+    // Tape disabled - uncomment when trade data is available
+    return;
+}
+
+// =============================================================================
+// LEADERBOARD
+// =============================================================================
+
+let leaderboardData = [];
+let leaderboardSort = 'total'; // 'total' or 'wave'
+
+// Fetch leaderboard from API
+async function fetchLeaderboard() {
+    try {
+        const data = await fetchAPI('/flow/leaderboard?limit=20');
+        if (data && data.leaderboard) {
+            leaderboardData = data.leaderboard;
+            renderLeaderboard();
+        }
+    } catch (error) {
+        console.error('[Leaderboard] Fetch error:', error);
+    }
+}
+
+// Render ticker and popup leaderboard
+function renderLeaderboard() {
+    renderTickerLeaderboard();
+    renderPopupLeaderboard();
+}
+
+// Render horizontal scrolling ticker
+function renderTickerLeaderboard() {
+    const container = document.getElementById('flowTickerContent');
+    if (!container) return;
+
+    if (leaderboardData.length === 0) {
+        container.innerHTML = '<span class="ticker-loading">Loading top flow...</span>';
+        return;
+    }
+
+    // Sort by total premium for ticker
+    const sorted = [...leaderboardData].sort((a, b) => b.total_premium - a.total_premium);
+
+    // Create ticker items (duplicate for seamless loop)
+    const tickerHtml = sorted.map(item => {
+        const sentiment = item.sentiment || 'neutral';
+        const wavePct = item.wave_pct || 0;
+        const waveSign = wavePct >= 0 ? '+' : '';
+        const totalPremium = formatPremium(item.total_premium || 0);
+        const arrow = sentiment === 'bullish' ? '▲' : sentiment === 'bearish' ? '▼' : '●';
+
+        return `
+            <span class="ticker-item ${sentiment}" data-symbol="${item.symbol}">
+                <span class="ticker-symbol">${item.symbol}</span>
+                <span class="ticker-premium">${totalPremium}</span>
+                <span class="ticker-wave ${sentiment}">${arrow} ${waveSign}${wavePct.toFixed(1)}%</span>
+            </span>
+        `;
+    }).join('<span class="ticker-divider">|</span>');
+
+    // Duplicate content for seamless scrolling
+    container.innerHTML = tickerHtml + '<span class="ticker-divider">|</span>' + tickerHtml;
+
+    // Add click handlers
+    container.querySelectorAll('.ticker-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const symbol = item.dataset.symbol;
+            if (symbol && symbol !== currentSymbol) {
+                loadSymbol(symbol);
+            }
+        });
+    });
+}
+
+// Render popup leaderboard
+function renderPopupLeaderboard() {
+    const container = document.getElementById('leaderboardPopupList');
+    if (!container) return;
+
+    if (leaderboardData.length === 0) {
+        container.innerHTML = '<div class="leaderboard-loading">No flow data yet...</div>';
+        return;
+    }
+
+    // Sort data
+    const sorted = [...leaderboardData].sort((a, b) => {
+        if (leaderboardSort === 'wave') {
+            return Math.abs(b.wave_pct) - Math.abs(a.wave_pct);
+        }
+        return b.total_premium - a.total_premium;
+    });
+
+    container.innerHTML = sorted.map((item, index) => {
+        const sentiment = item.sentiment || 'neutral';
+        const wavePct = item.wave_pct || 0;
+        const waveSign = wavePct >= 0 ? '+' : '';
+        const totalPremium = formatPremium(item.total_premium || 0);
+        const isActive = item.symbol === currentSymbol;
+
+        return `
+            <div class="leaderboard-item ${sentiment} ${isActive ? 'active' : ''}" data-symbol="${item.symbol}">
+                <div class="leaderboard-rank">${index + 1}</div>
+                <div class="leaderboard-symbol">${item.symbol}</div>
+                <div class="leaderboard-stats">
+                    <div class="leaderboard-premium">${totalPremium}</div>
+                    <div class="leaderboard-wave ${sentiment}">${waveSign}${wavePct.toFixed(1)}%</div>
+                </div>
+                <div class="leaderboard-sentiment ${sentiment}">
+                    ${sentiment === 'bullish' ? '▲' : sentiment === 'bearish' ? '▼' : '●'}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Add click handlers
+    container.querySelectorAll('.leaderboard-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const symbol = item.dataset.symbol;
+            if (symbol && symbol !== currentSymbol) {
+                loadSymbol(symbol);
+                closeLeaderboardPopup();
+            }
+        });
+    });
+}
+
+// Show/hide leaderboard popup
+function openLeaderboardPopup() {
+    const overlay = document.getElementById('leaderboardOverlay');
+    if (overlay) {
+        overlay.style.display = 'flex';
+        renderPopupLeaderboard();
+    }
+}
+
+function closeLeaderboardPopup() {
+    const overlay = document.getElementById('leaderboardOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+// Setup leaderboard controls (ticker expand + popup sort)
+function setupLeaderboardControls() {
+    // Expand button
+    const expandBtn = document.getElementById('btnExpandTicker');
+    if (expandBtn) {
+        expandBtn.addEventListener('click', openLeaderboardPopup);
+    }
+
+    // Close button
+    const closeBtn = document.getElementById('btnCloseLeaderboard');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeLeaderboardPopup);
+    }
+
+    // Overlay click to close
+    const overlay = document.getElementById('leaderboardOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeLeaderboardPopup();
+        });
+    }
+
+    // Sort buttons in popup
+    const buttons = document.querySelectorAll('.leaderboard-popup-header .leaderboard-sort-btn');
+    buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            buttons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            leaderboardSort = btn.dataset.sort || 'total';
+            renderPopupLeaderboard();
+        });
+    });
+}
+
+// Update tape with new trades
+function updateTradeTape(trades) {
+    const container = document.getElementById('tradeTapeList');
+    const countEl = document.getElementById('tapeTradeCount');
+    if (!container) return;
+
+    // Clear loading message on first load
+    if (container.querySelector('.tape-loading')) {
+        container.innerHTML = '';
+    }
+
+    // Filter out trades we've already seen
+    const newTrades = trades.filter(t => {
+        const tradeId = `${t.symbol}-${t.strike}-${t.timestamp}-${t.premium}`;
+        if (lastTapeTradeIds.has(tradeId)) return false;
+        lastTapeTradeIds.add(tradeId);
+        return true;
+    });
+
+    // Keep track set from growing too large
+    if (lastTapeTradeIds.size > 500) {
+        const arr = Array.from(lastTapeTradeIds);
+        lastTapeTradeIds = new Set(arr.slice(-200));
+    }
+
+    // Add new trades to the top with animation
+    newTrades.reverse().forEach(trade => {
+        const tradeEl = createTradeElement(trade);
+        tradeEl.classList.add('tape-trade-new');
+        container.insertBefore(tradeEl, container.firstChild);
+
+        // Remove animation class after animation completes
+        setTimeout(() => tradeEl.classList.remove('tape-trade-new'), 500);
+    });
+
+    // Limit total trades shown
+    while (container.children.length > 50) {
+        container.removeChild(container.lastChild);
+    }
+
+    // Update count
+    if (countEl) {
+        countEl.textContent = container.children.length;
+    }
+
+    tapeData = trades;
+}
+
+// Create a single trade element
+function createTradeElement(trade) {
+    const el = document.createElement('div');
+    el.className = `tape-trade ${trade.sentiment || 'neutral'}`;
+
+    const premium = trade.premium || 0;
+    const premiumStr = formatPremium(premium);
+    const strike = trade.strike || 0;
+    const contractType = (trade.contract_type || 'C').toUpperCase().charAt(0);
+    const tradeType = trade.trade_type || '';
+    const size = trade.size || 0;
+    const symbol = trade.symbol || currentSymbol || 'SPY';
+
+    // Format expiration
+    let expStr = '';
+    if (trade.expiration) {
+        const exp = new Date(trade.expiration);
+        expStr = `${exp.getMonth()+1}/${exp.getDate()}`;
+    }
+
+    // Determine badge
+    let badge = '';
+    if (tradeType === 'sweep') badge = '<span class="trade-badge sweep">SWEEP</span>';
+    else if (tradeType === 'block') badge = '<span class="trade-badge block">BLOCK</span>';
+
+    // Time
+    let timeStr = '';
+    if (trade.timestamp) {
+        const t = new Date(trade.timestamp);
+        timeStr = t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    el.innerHTML = `
+        <div class="tape-trade-main">
+            <span class="trade-symbol">${symbol}</span>
+            <span class="trade-contract ${contractType === 'C' ? 'call' : 'put'}">${strike}${contractType}</span>
+            <span class="trade-exp">${expStr}</span>
+            ${badge}
+        </div>
+        <div class="tape-trade-details">
+            <span class="trade-size">${size.toLocaleString()} @ </span>
+            <span class="trade-premium">${premiumStr}</span>
+            <span class="trade-time">${timeStr}</span>
+        </div>
+    `;
+
+    return el;
+}
+
+// Setup tape controls
+function setupTapeControls() {
+    const filterSelect = document.getElementById('tapePremiumFilter');
+    const pauseBtn = document.getElementById('tapePauseBtn');
+
+    if (filterSelect) {
+        filterSelect.addEventListener('change', (e) => {
+            tapeMinPremium = parseInt(e.target.value) || 100000;
+            // Clear current trades and refetch
+            const container = document.getElementById('tradeTapeList');
+            if (container) container.innerHTML = '<div class="tape-loading">Loading trades...</div>';
+            lastTapeTradeIds.clear();
+            fetchTradeTape(currentSymbol);
+        });
+    }
+
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', () => {
+            tapePaused = !tapePaused;
+            pauseBtn.querySelector('.pause-icon').textContent = tapePaused ? '▶' : '⏸';
+            pauseBtn.classList.toggle('paused', tapePaused);
+        });
+    }
+}
+
+// Initialize WAVE chart using lightweight-charts
+function initWaveChart() {
+    const container = document.getElementById('waveChart');
+    if (!container || waveChart) return;
+
+    // Clear loading message
+    container.innerHTML = '';
+
+    // Check if LightweightCharts is available
+    if (typeof LightweightCharts === 'undefined') {
+        console.error('LightweightCharts not loaded');
+        container.innerHTML = '<div class="wave-loading">Chart library not available</div>';
+        return;
+    }
+
+    try {
+        waveChart = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: 200,
+            layout: {
+                background: { type: 'solid', color: 'transparent' },
+                textColor: '#a0a0a0'
+            },
+            grid: {
+                vertLines: { color: 'rgba(255,255,255,0.05)' },
+                horzLines: { color: 'rgba(255,255,255,0.05)' }
+            },
+            timeScale: {
+                timeVisible: true,
+                secondsVisible: false,
+                borderColor: 'rgba(255,255,255,0.1)'
+            },
+            rightPriceScale: {
+                borderColor: 'rgba(255,255,255,0.1)',
+                scaleMargins: { top: 0.1, bottom: 0.1 }
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+                vertLine: { color: 'rgba(255,255,255,0.2)' },
+                horzLine: { color: 'rgba(255,255,255,0.2)' }
+            }
+        });
+
+        // Call flow (green area)
+        waveCallSeries = waveChart.addAreaSeries({
+            lineColor: '#22c55e',
+            topColor: 'rgba(34, 197, 94, 0.4)',
+            bottomColor: 'rgba(34, 197, 94, 0.0)',
+            lineWidth: 2,
+            priceFormat: { type: 'custom', formatter: (price) => formatPremium(price * 1e6) }
+        });
+
+        // Put flow (red area)
+        wavePutSeries = waveChart.addAreaSeries({
+            lineColor: '#ef4444',
+            topColor: 'rgba(239, 68, 68, 0.4)',
+            bottomColor: 'rgba(239, 68, 68, 0.0)',
+            lineWidth: 2,
+            priceFormat: { type: 'custom', formatter: (price) => formatPremium(price * 1e6) }
+        });
+
+        // Net WAVE line (blue)
+        waveNetSeries = waveChart.addLineSeries({
+            color: '#3b82f6',
+            lineWidth: 3,
+            priceFormat: { type: 'custom', formatter: (price) => formatPremium(price * 1e6) }
+        });
+
+        // Handle resize
+        const resizeObserver = new ResizeObserver(() => {
+            if (waveChart && container.clientWidth > 0) {
+                waveChart.applyOptions({ width: container.clientWidth });
+            }
+        });
+        resizeObserver.observe(container);
+
+        console.log('[WAVE] Chart initialized');
+    } catch (error) {
+        console.error('[WAVE] Chart init error:', error);
+        container.innerHTML = '<div class="wave-loading">Failed to initialize chart</div>';
+    }
+}
+
+// Fetch WAVE data from API
+async function fetchWaveData(symbol, minutes = 60) {
+    if (!symbol) return;
+
+    try {
+        const data = await fetchAPI(`/flow/${symbol}/wave?minutes=${minutes}`);
+        updateWaveChart(data);
+        updateWaveStats(data);
+    } catch (error) {
+        console.error('[WAVE] Fetch error:', error);
+    }
+}
+
+// Update WAVE chart with data
+function updateWaveChart(data) {
+    if (!waveChart || !data) return;
+
+    const history = data.wave_history || [];
+
+    if (history.length === 0) {
+        // No history - show current value as single point if available
+        if (data.current_wave) {
+            const now = Math.floor(Date.now() / 1000);
+            const callVal = (data.current_wave.cumulative_call || 0) / 1e6;
+            const putVal = (data.current_wave.cumulative_put || 0) / 1e6;
+            const netVal = (data.current_wave.wave_value || 0) / 1e6;
+
+            waveCallSeries.setData([{ time: now, value: callVal }]);
+            wavePutSeries.setData([{ time: now, value: putVal }]);
+            waveNetSeries.setData([{ time: now, value: netVal }]);
+        }
+        return;
+    }
+
+    // Convert history to chart format (values in millions for readability)
+    const callData = history.map(d => ({
+        time: Math.floor(new Date(d.timestamp).getTime() / 1000),
+        value: (parseFloat(d.cumulative_call) || 0) / 1e6
+    }));
+
+    const putData = history.map(d => ({
+        time: Math.floor(new Date(d.timestamp).getTime() / 1000),
+        value: (parseFloat(d.cumulative_put) || 0) / 1e6
+    }));
+
+    const netData = history.map(d => ({
+        time: Math.floor(new Date(d.timestamp).getTime() / 1000),
+        value: (parseFloat(d.wave_value) || 0) / 1e6
+    }));
+
+    waveCallSeries.setData(callData);
+    wavePutSeries.setData(putData);
+    waveNetSeries.setData(netData);
+
+    // Fit content
+    waveChart.timeScale().fitContent();
+}
+
+// Update WAVE stats display
+function updateWaveStats(data) {
+    const current = data.current_wave;
+    if (!current) return;
+
+    const waveValue = document.getElementById('waveValue');
+    const waveCallValue = document.getElementById('waveCallValue');
+    const wavePutValue = document.getElementById('wavePutValue');
+    const waveDirection = document.getElementById('waveDirection');
+
+    if (waveValue) {
+        const net = current.wave_value || 0;
+        waveValue.textContent = formatPremium(net);
+        waveValue.className = `wave-value ${net > 0 ? 'positive' : net < 0 ? 'negative' : ''}`;
+    }
+
+    if (waveCallValue) {
+        waveCallValue.textContent = formatPremium(current.cumulative_call || 0);
+    }
+
+    if (wavePutValue) {
+        wavePutValue.textContent = formatPremium(current.cumulative_put || 0);
+    }
+
+    if (waveDirection) {
+        const pct = current.wave_pct || 0;
+        if (pct > 10) {
+            waveDirection.textContent = 'BULLISH';
+            waveDirection.className = 'wave-direction bullish';
+        } else if (pct < -10) {
+            waveDirection.textContent = 'BEARISH';
+            waveDirection.className = 'wave-direction bearish';
+        } else {
+            waveDirection.textContent = 'NEUTRAL';
+            waveDirection.className = 'wave-direction neutral';
+        }
+    }
+}
+
+// Setup WAVE timeframe buttons
+function setupWaveTimeframeButtons() {
+    const buttons = document.querySelectorAll('.wave-tf-btn');
+    buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            buttons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            waveTimeframe = parseInt(btn.dataset.minutes) || 60;
+            fetchWaveData(currentSymbol, waveTimeframe);
+        });
+    });
+}
 
 async function fetchFlowData(symbol) {
     if (!symbol) return;
@@ -2090,12 +2920,8 @@ function renderZones(data) {
 }
 
 // =============================================================================
-// NEW FEATURES - Expected Move, GEX Flip, Put/Call Walls, Price Chart
+// NEW FEATURES - Expected Move, GEX Flip, Put/Call Walls
 // =============================================================================
-
-let priceChart = null;
-let candleSeries = null;
-let chartLevelLines = [];
 
 function renderExpectedMove(data) {
     const em = data.expected_move;
@@ -2244,9 +3070,14 @@ async function loadAndRenderChart(symbol, resolution = '5') {
 
         // Initialize chart if not exists
         if (!priceChart) {
+            chartWrapper.innerHTML = ''; // Clear loading message
+
+            // Calculate dynamic height to fill available space
+            const chartHeight = Math.max(chartWrapper.clientHeight || 500, 400);
+
             priceChart = LightweightCharts.createChart(chartWrapper, {
                 width: chartWrapper.clientWidth,
-                height: 280,
+                height: chartHeight,
                 layout: {
                     background: { color: '#141414' },
                     textColor: '#a0a0a0',
@@ -2267,6 +3098,20 @@ async function loadAndRenderChart(symbol, resolution = '5') {
                 },
             });
 
+            // Handle resize - update both width and height
+            window.addEventListener('resize', () => {
+                if (priceChart && chartWrapper) {
+                    const newHeight = Math.max(chartWrapper.clientHeight || 500, 400);
+                    priceChart.applyOptions({
+                        width: chartWrapper.clientWidth,
+                        height: newHeight
+                    });
+                }
+            });
+        }
+
+        // Create candlestick series if not exists
+        if (!candleSeries) {
             candleSeries = priceChart.addCandlestickSeries({
                 upColor: '#22c55e',
                 downColor: '#ef4444',
@@ -2275,13 +3120,12 @@ async function loadAndRenderChart(symbol, resolution = '5') {
                 wickDownColor: '#ef4444',
                 wickUpColor: '#22c55e',
             });
+        }
 
-            // Handle resize
-            window.addEventListener('resize', () => {
-                if (priceChart && chartWrapper) {
-                    priceChart.applyOptions({ width: chartWrapper.clientWidth });
-                }
-            });
+        // Verify we have valid series
+        if (!candleSeries) {
+            console.error('[Chart] Failed to create candle series');
+            return;
         }
 
         // Set candle data
@@ -2294,6 +3138,7 @@ async function loadAndRenderChart(symbol, resolution = '5') {
         }));
 
         candleSeries.setData(candles);
+        chartLoadedSymbol = symbol;  // Track which symbol is loaded
 
         // Remove old level lines
         chartLevelLines.forEach(line => {
@@ -2301,75 +3146,106 @@ async function loadAndRenderChart(symbol, resolution = '5') {
         });
         chartLevelLines = [];
 
-        // Add GEX level lines
+        // Add GEX level lines - MATCHING KEY ZONES CLASSIFICATION
         const levels = data.levels;
         if (levels) {
-            if (levels.king) {
+            // Determine if magnet is also resistance (above spot) or support (below spot)
+            const magnetIsResistance = levels.magnet && levels.resistance === levels.magnet;
+            const magnetIsSupport = levels.magnet && levels.support === levels.magnet;
+
+            // MAGNET - Cyan (highest positive GEX = price target)
+            // Add context if it's also resistance or support
+            if (levels.magnet) {
+                let magnetLabel = '🧲 MAGNET';
+                if (magnetIsResistance) magnetLabel = '🧲 MAGNET/RESIST';
+                else if (magnetIsSupport) magnetLabel = '🧲 MAGNET/SUPPORT';
+
                 chartLevelLines.push(candleSeries.createPriceLine({
-                    price: levels.king,
-                    color: '#fbbf24',
+                    price: levels.magnet,
+                    color: '#00ffff',
                     lineWidth: 2,
                     lineStyle: LightweightCharts.LineStyle.Solid,
                     axisLabelVisible: true,
-                    title: 'King',
+                    title: magnetLabel,
                 }));
             }
 
-            if (levels.gatekeeper) {
+            // RESISTANCE - Orange (highest positive GEX ABOVE spot)
+            // Only show separate line if different from Magnet
+            if (levels.resistance && levels.resistance !== levels.magnet) {
                 chartLevelLines.push(candleSeries.createPriceLine({
-                    price: levels.gatekeeper,
+                    price: levels.resistance,
+                    color: '#f97316',
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
+                    axisLabelVisible: true,
+                    title: 'RESISTANCE',
+                }));
+            }
+
+            // SUPPORT - Green (highest positive GEX BELOW spot)
+            // Only show separate line if different from Magnet
+            if (levels.support && levels.support !== levels.magnet) {
+                chartLevelLines.push(candleSeries.createPriceLine({
+                    price: levels.support,
+                    color: '#22c55e',
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
+                    axisLabelVisible: true,
+                    title: 'SUPPORT',
+                }));
+            }
+
+            // ACCELERATOR - Purple (highest negative GEX = vol expansion zone)
+            if (levels.accelerator) {
+                chartLevelLines.push(candleSeries.createPriceLine({
+                    price: levels.accelerator,
                     color: '#a855f7',
                     lineWidth: 2,
-                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
                     axisLabelVisible: true,
-                    title: 'GK',
+                    title: '⚡ ACCEL',
                 }));
             }
 
+            // Zero Gamma / Flip point - White dashed
             if (levels.zero_gamma) {
                 chartLevelLines.push(candleSeries.createPriceLine({
                     price: levels.zero_gamma,
-                    color: '#3b82f6',
-                    lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Dotted,
-                    axisLabelVisible: true,
-                    title: '0γ',
-                }));
-            }
-
-            if (levels.gex_flip) {
-                chartLevelLines.push(candleSeries.createPriceLine({
-                    price: levels.gex_flip,
-                    color: '#f97316',
+                    color: '#ffffff',
                     lineWidth: 1,
                     lineStyle: LightweightCharts.LineStyle.Dashed,
                     axisLabelVisible: true,
-                    title: 'Flip',
+                    title: '0γ FLIP',
                 }));
             }
 
-            // Expected move range as area
+            // Expected move range - subtle gray
             if (levels.expected_move && levels.expected_move.daily) {
                 chartLevelLines.push(candleSeries.createPriceLine({
                     price: levels.expected_move.daily.high,
-                    color: '#666666',
+                    color: '#555555',
                     lineWidth: 1,
                     lineStyle: LightweightCharts.LineStyle.Dotted,
                     axisLabelVisible: false,
-                    title: 'EM+',
+                    title: '+EM',
                 }));
                 chartLevelLines.push(candleSeries.createPriceLine({
                     price: levels.expected_move.daily.low,
-                    color: '#666666',
+                    color: '#555555',
                     lineWidth: 1,
                     lineStyle: LightweightCharts.LineStyle.Dotted,
                     axisLabelVisible: false,
-                    title: 'EM-',
+                    title: '-EM',
                 }));
             }
         }
 
-        priceChart.timeScale().fitContent();
+        // Only fit content on first load, not on refresh
+        if (!window.chartInitialized) {
+            priceChart.timeScale().fitContent();
+            window.chartInitialized = true;
+        }
 
     } catch (error) {
         console.error('Error loading chart:', error);
@@ -2397,7 +3273,7 @@ function togglePriceChart() {
     const container = document.getElementById('chartContainer');
 
     if (container.style.display === 'none') {
-        loadAndRenderChart(currentSymbol);
+        loadAndRenderChart(currentSymbol, chartResolution);
     } else {
         container.style.display = 'none';
     }
@@ -2409,9 +3285,11 @@ function togglePriceChart() {
 
 async function loadSymbol(symbol, forceRefresh = false) {
     try {
-        // Reset flow data when switching symbols (shows loading on first fetch)
-        if (currentSymbol !== symbol) {
+        // Reset flow data and chart when switching symbols
+        const symbolChanged = currentSymbol !== symbol;
+        if (symbolChanged) {
             flowData = null;
+            window.chartInitialized = false; // Reset chart fit on symbol change
         }
         currentSymbol = symbol;
         saveState(); // Persist current symbol
@@ -2438,15 +3316,19 @@ async function loadSymbol(symbol, forceRefresh = false) {
             renderPutCallWalls(data);
         }
 
-        // If price chart is visible, update it
-        const chartContainer = document.getElementById('chartContainer');
-        if (chartContainer && chartContainer.style.display !== 'none') {
-            loadAndRenderChart(symbol);
+        // Update chart when switching tickers in chart view
+        // Use chartLoadedSymbol to detect if chart needs reload (more reliable than symbolChanged)
+        console.log(`[loadSymbol] currentView=${currentView}, chartLoadedSymbol=${chartLoadedSymbol}, symbol=${symbol}`);
+        if (currentView === 'chart' && chartLoadedSymbol !== symbol) {
+            console.log(`[loadSymbol] Reloading chart for ${symbol} (was ${chartLoadedSymbol})`);
+            window.chartInitialized = false; // Reset fit for new symbol
+            loadAndRenderChart(symbol, chartResolution);
         }
 
-        // If in flow view, also fetch flow data
+        // If in flow view, also fetch flow data and update WAVE
         if (currentView === 'flow') {
             fetchFlowData(symbol);
+            fetchWaveData(symbol, waveTimeframe);
         }
 
     } catch (error) {
@@ -2464,42 +3346,69 @@ function switchView(view) {
         btn.classList.toggle('active', btn.dataset.view === view);
     });
 
-    // Handle flow view specially - show/hide containers
+    // Determine view types
     const isFlowView = view === 'flow';
-    console.log('[switchView] isFlowView:', isFlowView);
+    const isChartView = view === 'chart';
+    const isHeatmapView = !isFlowView && !isChartView; // gex, vex, dex
+    console.log('[switchView] View types:', { isFlowView, isChartView, isHeatmapView });
 
-    // Get containers directly to ensure we have them
+    // Get containers
     const heatmapContainer = document.querySelector('.heatmap-container');
     const flowContainer = document.getElementById('flowContainer');
+    const chartContainer = document.getElementById('chartContainer');
     const zonesSidebar = document.querySelector('.zones-sidebar');
-    console.log('[switchView] Found containers:', { heatmap: !!heatmapContainer, flow: !!flowContainer, zones: !!zonesSidebar });
 
+    // Show/hide containers based on view
     if (heatmapContainer) {
-        heatmapContainer.style.display = isFlowView ? 'none' : '';
-        console.log('[switchView] Set heatmap display to:', heatmapContainer.style.display);
+        heatmapContainer.style.display = isHeatmapView ? '' : 'none';
     }
     if (flowContainer) {
         flowContainer.style.display = isFlowView ? 'flex' : 'none';
-        console.log('[switchView] Set flow display to:', flowContainer.style.display);
     }
-    // Also hide zones sidebar in flow view
+    if (chartContainer) {
+        chartContainer.style.display = isChartView ? 'flex' : 'none';
+    }
     if (zonesSidebar) {
-        zonesSidebar.style.display = isFlowView ? 'none' : '';
+        zonesSidebar.style.display = isHeatmapView ? '' : 'none';
     }
 
     // Update view title
     if (elements.heatmapViewTitle) {
-        const titles = { gex: 'GEX Heatmap', vex: 'VEX Heatmap', dex: 'DEX Heatmap', flow: 'Options Flow' };
+        const titles = { gex: 'GEX Heatmap', vex: 'VEX Heatmap', dex: 'DEX Heatmap', flow: 'Options Flow', chart: 'Price Chart' };
         elements.heatmapViewTitle.textContent = titles[view] || 'GEX Heatmap';
         elements.heatmapViewTitle.className = 'heatmap-view-title';
         if (view === 'vex') elements.heatmapViewTitle.classList.add('vex-view');
         if (view === 'dex') elements.heatmapViewTitle.classList.add('dex-view');
     }
 
-    // For flow view, fetch flow data
+    // Stop all auto-refresh intervals first
+    stopWaveAutoRefresh();
+    stopChartAutoRefresh();
+
+    // Handle view-specific initialization
     if (isFlowView && currentSymbol) {
         fetchFlowData(currentSymbol);
-    } else if (currentData) {
+        setTimeout(() => {
+            initWaveChart();
+            setupWaveTimeframeButtons();
+            fetchWaveData(currentSymbol, waveTimeframe);
+            setupLeaderboardControls();
+            fetchLeaderboard();
+            startWaveAutoRefresh();
+        }, 100);
+    } else if (isChartView && currentSymbol) {
+        // Initialize price chart - use only loadAndRenderChart
+        // Always reload if symbol changed since last chart load
+        setTimeout(() => {
+            setupChartTimeframeButtons();
+            if (chartLoadedSymbol !== currentSymbol) {
+                console.log(`[Chart] Symbol changed: ${chartLoadedSymbol} -> ${currentSymbol}, reloading`);
+                window.chartInitialized = false; // Reset fit for new symbol
+            }
+            loadAndRenderChart(currentSymbol, chartResolution);
+            startChartAutoRefresh();
+        }, 100);
+    } else if (isHeatmapView && currentData) {
         // Re-render heatmap with new view
         renderHeatmap(currentData, view);
     }
@@ -3497,12 +4406,12 @@ async function updateQuiverAlerts() {
     try {
         const alerts = await fetchQuiverAlerts();
 
-        // Combine all alerts
+        // Combine all alerts (with null safety)
         const allAlerts = [
-            ...alerts.congress.map(a => ({ ...a, severity: 'info' })),
-            ...alerts.insider.map(a => ({ ...a, severity: 'warning' })),
-            ...alerts.dark_pool.map(a => ({ ...a, severity: 'info' })),
-            ...alerts.wsb.map(a => ({ ...a, severity: 'info' }))
+            ...(alerts.congress || []).map(a => ({ ...a, severity: 'info' })),
+            ...(alerts.insider || []).map(a => ({ ...a, severity: 'warning' })),
+            ...(alerts.dark_pool || []).map(a => ({ ...a, severity: 'info' })),
+            ...(alerts.wsb || []).map(a => ({ ...a, severity: 'info' }))
         ];
 
         // Update the alerts indicator
@@ -3819,6 +4728,8 @@ function setupEventHandlers() {
             const resolution = btn.dataset.res;
             document.querySelectorAll('.btn-resolution').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
+            chartResolution = resolution; // Update global resolution
+            window.chartInitialized = false; // Reset fit on resolution change
             loadAndRenderChart(currentSymbol, resolution);
         });
     });

@@ -93,7 +93,7 @@ async def create_tables():
                 user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
                 theme VARCHAR(10) DEFAULT 'dark',
                 current_symbol VARCHAR(10) DEFAULT 'SPX',
-                refresh_interval INTEGER DEFAULT 5,
+                refresh_interval INTEGER DEFAULT 1,
                 current_view VARCHAR(10) DEFAULT 'gex',
                 expiration_mode VARCHAR(10) DEFAULT 'all',
                 view_mode VARCHAR(10) DEFAULT 'single',
@@ -115,12 +115,66 @@ async def create_tables():
             )
         """)
 
+        # WAVE indicator data (cumulative call/put flow over time)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS wave_data (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                symbol VARCHAR(10) NOT NULL,
+                timestamp TIMESTAMPTZ NOT NULL,
+                cumulative_call DECIMAL(18,2) NOT NULL DEFAULT 0,
+                cumulative_put DECIMAL(18,2) NOT NULL DEFAULT 0,
+                wave_value DECIMAL(18,2) NOT NULL DEFAULT 0,
+                call_premium DECIMAL(18,2) DEFAULT 0,
+                put_premium DECIMAL(18,2) DEFAULT 0,
+                UNIQUE(symbol, timestamp)
+            )
+        """)
+
+        # Large trades for trade tape
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS flow_trades (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                symbol VARCHAR(10) NOT NULL,
+                strike DECIMAL(10,2) NOT NULL,
+                expiration DATE NOT NULL,
+                contract_type VARCHAR(4) NOT NULL,
+                trade_type VARCHAR(10) NOT NULL,
+                size INTEGER NOT NULL,
+                premium DECIMAL(14,2) NOT NULL,
+                sentiment VARCHAR(10),
+                timestamp TIMESTAMPTZ NOT NULL
+            )
+        """)
+
+        # Flow leaderboard cache
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS flow_leaderboard (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                symbol VARCHAR(10) NOT NULL,
+                timestamp TIMESTAMPTZ NOT NULL,
+                total_premium DECIMAL(18,2) NOT NULL,
+                net_premium DECIMAL(18,2) NOT NULL,
+                call_premium DECIMAL(18,2) DEFAULT 0,
+                put_premium DECIMAL(18,2) DEFAULT 0,
+                unusual_score DECIMAL(10,2),
+                sentiment VARCHAR(10),
+                rank INTEGER,
+                UNIQUE(symbol, timestamp)
+            )
+        """)
+
         # Create indexes
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_approval ON users(is_approved)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_symbols_user ON user_symbols(user_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash)")
+
+        # Flow feature indexes
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_wave_symbol_time ON wave_data(symbol, timestamp DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_time ON flow_trades(symbol, timestamp DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_premium ON flow_trades(premium DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_rank ON flow_leaderboard(timestamp DESC, rank)")
 
 
 def get_pool() -> Optional[asyncpg.Pool]:
@@ -571,7 +625,7 @@ async def save_user_preferences(user_id: str, preferences: dict) -> bool:
             user_id,
             preferences.get('theme', 'dark'),
             preferences.get('current_symbol', 'SPX'),
-            preferences.get('refresh_interval', 5),
+            preferences.get('refresh_interval', 1),
             preferences.get('current_view', 'gex'),
             preferences.get('expiration_mode', 'all'),
             preferences.get('view_mode', 'single'),
@@ -597,3 +651,199 @@ async def init_user_defaults(user_id: str, default_symbols: List[str] = None) ->
         await add_user_symbol(user_id, symbol)
 
     return True
+
+
+# ============== WAVE Data Operations ==============
+
+async def save_wave_data(
+    symbol: str,
+    timestamp: datetime,
+    cumulative_call: float,
+    cumulative_put: float,
+    call_premium: float = 0,
+    put_premium: float = 0
+) -> bool:
+    """Save WAVE indicator data point"""
+    if not _pool:
+        return False
+
+    wave_value = cumulative_call - cumulative_put
+
+    async with _pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO wave_data (symbol, timestamp, cumulative_call, cumulative_put, wave_value, call_premium, put_premium)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (symbol, timestamp) DO UPDATE SET
+                cumulative_call = EXCLUDED.cumulative_call,
+                cumulative_put = EXCLUDED.cumulative_put,
+                wave_value = EXCLUDED.wave_value,
+                call_premium = EXCLUDED.call_premium,
+                put_premium = EXCLUDED.put_premium
+        """, symbol, timestamp, cumulative_call, cumulative_put, wave_value, call_premium, put_premium)
+        return True
+
+
+async def get_wave_history(symbol: str, minutes: int = 60) -> List[dict]:
+    """Get WAVE history for a symbol"""
+    if not _pool:
+        return []
+
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT timestamp, cumulative_call, cumulative_put, wave_value, call_premium, put_premium
+            FROM wave_data
+            WHERE symbol = $1 AND timestamp > NOW() - INTERVAL '%s minutes'
+            ORDER BY timestamp ASC
+        """ % minutes, symbol)
+
+        return [dict(row) for row in rows]
+
+
+async def get_latest_wave(symbol: str) -> Optional[dict]:
+    """Get the most recent WAVE data for a symbol"""
+    if not _pool:
+        return None
+
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT timestamp, cumulative_call, cumulative_put, wave_value, call_premium, put_premium
+            FROM wave_data
+            WHERE symbol = $1
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """, symbol)
+
+        return dict(row) if row else None
+
+
+async def cleanup_old_wave_data(days: int = 7) -> int:
+    """Delete WAVE data older than specified days"""
+    if not _pool:
+        return 0
+
+    async with _pool.acquire() as conn:
+        result = await conn.execute("""
+            DELETE FROM wave_data WHERE timestamp < NOW() - INTERVAL '%s days'
+        """ % days)
+        return int(result.split()[1]) if result else 0
+
+
+# ============== Flow Trades Operations ==============
+
+async def save_flow_trade(trade: dict) -> bool:
+    """Save a large trade to the tape"""
+    if not _pool:
+        return False
+
+    async with _pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO flow_trades (symbol, strike, expiration, contract_type, trade_type, size, premium, sentiment, timestamp)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """,
+            trade['symbol'],
+            trade['strike'],
+            trade['expiration'],
+            trade['contract_type'],
+            trade['trade_type'],
+            trade['size'],
+            trade['premium'],
+            trade.get('sentiment'),
+            trade['timestamp']
+        )
+        return True
+
+
+async def get_recent_trades(symbol: str = None, min_premium: float = 10000, limit: int = 50) -> List[dict]:
+    """Get recent large trades for the tape"""
+    if not _pool:
+        return []
+
+    async with _pool.acquire() as conn:
+        if symbol:
+            rows = await conn.fetch("""
+                SELECT symbol, strike, expiration, contract_type, trade_type, size, premium, sentiment, timestamp
+                FROM flow_trades
+                WHERE symbol = $1 AND premium >= $2
+                ORDER BY timestamp DESC
+                LIMIT $3
+            """, symbol, min_premium, limit)
+        else:
+            rows = await conn.fetch("""
+                SELECT symbol, strike, expiration, contract_type, trade_type, size, premium, sentiment, timestamp
+                FROM flow_trades
+                WHERE premium >= $1
+                ORDER BY timestamp DESC
+                LIMIT $2
+            """, min_premium, limit)
+
+        return [dict(row) for row in rows]
+
+
+async def cleanup_old_trades(days: int = 7) -> int:
+    """Delete trades older than specified days"""
+    if not _pool:
+        return 0
+
+    async with _pool.acquire() as conn:
+        result = await conn.execute("""
+            DELETE FROM flow_trades WHERE timestamp < NOW() - INTERVAL '%s days'
+        """ % days)
+        return int(result.split()[1]) if result else 0
+
+
+# ============== Flow Leaderboard Operations ==============
+
+async def update_leaderboard(entries: List[dict]) -> bool:
+    """Update the flow leaderboard with new rankings"""
+    if not _pool or not entries:
+        return False
+
+    now = datetime.now(timezone.utc)
+
+    async with _pool.acquire() as conn:
+        for i, entry in enumerate(entries):
+            await conn.execute("""
+                INSERT INTO flow_leaderboard
+                    (symbol, timestamp, total_premium, net_premium, call_premium, put_premium, unusual_score, sentiment, rank)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (symbol, timestamp) DO UPDATE SET
+                    total_premium = EXCLUDED.total_premium,
+                    net_premium = EXCLUDED.net_premium,
+                    call_premium = EXCLUDED.call_premium,
+                    put_premium = EXCLUDED.put_premium,
+                    unusual_score = EXCLUDED.unusual_score,
+                    sentiment = EXCLUDED.sentiment,
+                    rank = EXCLUDED.rank
+            """,
+                entry['symbol'],
+                now,
+                entry.get('total_premium', 0),
+                entry.get('net_premium', 0),
+                entry.get('call_premium', 0),
+                entry.get('put_premium', 0),
+                entry.get('unusual_score'),
+                entry.get('sentiment'),
+                i + 1
+            )
+        return True
+
+
+async def get_leaderboard(limit: int = 20) -> List[dict]:
+    """Get the current flow leaderboard"""
+    if not _pool:
+        return []
+
+    async with _pool.acquire() as conn:
+        # Get the most recent leaderboard entries
+        rows = await conn.fetch("""
+            SELECT DISTINCT ON (symbol)
+                symbol, total_premium, net_premium, call_premium, put_premium,
+                unusual_score, sentiment, rank, timestamp
+            FROM flow_leaderboard
+            WHERE timestamp > NOW() - INTERVAL '5 minutes'
+            ORDER BY symbol, timestamp DESC
+        """)
+
+        # Sort by rank
+        result = sorted([dict(row) for row in rows], key=lambda x: x.get('rank', 999))
+        return result[:limit]

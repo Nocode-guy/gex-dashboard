@@ -9,8 +9,10 @@
 </head>
 <body>
     <div class="app">
-        <!-- Top Bar: Ticker Pills -->
-        <div class="ticker-bar">
+        <!-- Sticky Header Wrapper -->
+        <div class="sticky-header">
+            <!-- Top Bar: Ticker Pills -->
+            <div class="ticker-bar">
             <div class="ticker-bar-left">
                 <div class="all-tickers-dropdown">
                     <button class="all-tickers-btn" id="btnAllTickers">
@@ -44,6 +46,7 @@
                     <button class="btn-metric" data-view="vex">📈 VEX</button>
                     <button class="btn-metric" data-view="dex">Δ DEX</button>
                     <button class="btn-metric" data-view="flow">📊 Flow</button>
+                    <button class="btn-metric" data-view="chart">📈 Chart</button>
                 </div>
             </div>
 
@@ -183,11 +186,12 @@
             </div>
         </div>
 
-        <!-- Dealer Flip Warning Banner (hidden by default) -->
-        <div class="dealer-warning" id="dealerWarning" style="display: none;">
-            <span class="warning-icon">⚠️</span>
-            <span class="warning-text" id="dealerWarningText">Dealer Flip Risk</span>
-        </div>
+            <!-- Dealer Flip Warning Banner (hidden by default) -->
+            <div class="dealer-warning" id="dealerWarning" style="display: none;">
+                <span class="warning-icon">⚠️</span>
+                <span class="warning-text" id="dealerWarningText">Dealer Flip Risk</span>
+            </div>
+        </div><!-- End Sticky Header -->
 
         <!-- Main Content -->
         <main class="main-content">
@@ -217,8 +221,53 @@
                 </aside>
             </div>
 
+            <!-- Chart Container (Price Candlestick with GEX Levels) -->
+            <div class="chart-container" id="chartContainer" style="display: none;">
+                <div class="chart-header">
+                    <div class="chart-title">
+                        <h2>Price Chart</h2>
+                        <span class="live-badge"><span class="pulse-dot"></span> LIVE</span>
+                    </div>
+                    <div class="chart-timeframe">
+                        <button class="chart-tf-btn active" data-resolution="1">1m</button>
+                        <button class="chart-tf-btn" data-resolution="5">5m</button>
+                        <button class="chart-tf-btn" data-resolution="15">15m</button>
+                        <button class="chart-tf-btn" data-resolution="60">1h</button>
+                        <button class="chart-tf-btn" data-resolution="D">D</button>
+                    </div>
+                </div>
+                <div class="price-chart-wrapper">
+                    <div class="price-chart" id="priceChart">
+                        <div class="chart-loading">Loading chart...</div>
+                    </div>
+                </div>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-line magnet"></span> Magnet</span>
+                    <span class="legend-item"><span class="legend-line resistance"></span> Resistance</span>
+                    <span class="legend-item"><span class="legend-line support"></span> Support</span>
+                    <span class="legend-item"><span class="legend-line accel"></span> Accelerator</span>
+                    <span class="legend-item"><span class="legend-line zero-gamma"></span> 0γ Flip</span>
+                </div>
+            </div>
+
             <!-- Flow Container -->
             <div class="flow-container" id="flowContainer" style="display: none;">
+                <!-- Top Flow Ticker (Horizontal Scrolling) - Top Moving Stocks -->
+                <div class="flow-ticker-container" id="flowTickerContainer">
+                    <div class="flow-ticker-label">
+                        <span class="ticker-title">TOP FLOW</span>
+                        <span class="live-badge tiny"><span class="pulse-dot"></span></span>
+                    </div>
+                    <div class="flow-ticker-track">
+                        <div class="flow-ticker-content" id="flowTickerContent">
+                            <span class="ticker-loading">Loading top flow...</span>
+                        </div>
+                    </div>
+                    <button class="flow-ticker-expand" id="btnExpandTicker" title="Expand Leaderboard">
+                        <span>⤢</span>
+                    </button>
+                </div>
+
                 <!-- Flow Header -->
                 <div class="flow-page-header">
                     <div class="flow-title">
@@ -303,6 +352,53 @@
 
                 <!-- Flow Content -->
                 <div class="flow-content">
+                    <!-- WAVE Indicator Panel -->
+                    <div class="flow-panel wave-panel full-width" id="panelWave">
+                        <div class="wave-header">
+                            <div class="wave-title-row">
+                                <h3>WAVE Indicator</h3>
+                                <span class="live-badge small"><span class="pulse-dot"></span> LIVE</span>
+                            </div>
+                            <div class="wave-legend">
+                                <span class="legend-item"><span class="legend-line call"></span> Call Flow</span>
+                                <span class="legend-item"><span class="legend-line put"></span> Put Flow</span>
+                                <span class="legend-item"><span class="legend-line wave"></span> Net WAVE</span>
+                            </div>
+                            <div class="wave-timeframe">
+                                <button class="wave-tf-btn active" data-minutes="15">15m</button>
+                                <button class="wave-tf-btn" data-minutes="60">1h</button>
+                                <button class="wave-tf-btn" data-minutes="240">4h</button>
+                            </div>
+                        </div>
+                        <div class="wave-chart" id="waveChart">
+                            <div class="wave-loading">Loading WAVE data...</div>
+                        </div>
+                        <div class="wave-current">
+                            <div class="wave-stat">
+                                <span class="wave-label">Current WAVE</span>
+                                <span class="wave-value" id="waveValue">$0</span>
+                            </div>
+                            <div class="wave-stat">
+                                <span class="wave-label">Call Flow</span>
+                                <span class="wave-value call" id="waveCallValue">$0</span>
+                            </div>
+                            <div class="wave-stat">
+                                <span class="wave-label">Put Flow</span>
+                                <span class="wave-value put" id="wavePutValue">$0</span>
+                            </div>
+                            <div class="wave-stat">
+                                <span class="wave-label">Direction</span>
+                                <span class="wave-direction" id="waveDirection">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trade Tape Panel - Hidden until real trade data is available
+                    <div class="flow-panel tape-panel full-width" id="panelTape">
+                        ...
+                    </div>
+                    -->
+
                     <!-- Strike Distribution Panel (Full Width) -->
                     <div class="flow-panel distribution-panel full-width" id="panelDistribution">
                         <div class="distribution-header">
@@ -343,6 +439,25 @@
             <span id="heatmapViewTitle"></span>
             <span id="playbackStart"></span>
             <span id="playbackEnd"></span>
+        </div>
+
+        <!-- Top Flow Leaderboard Popup -->
+        <div class="leaderboard-overlay" id="leaderboardOverlay" style="display: none;">
+            <div class="leaderboard-popup">
+                <div class="leaderboard-popup-header">
+                    <h3>Top Flow Leaderboard</h3>
+                    <div class="leaderboard-popup-controls">
+                        <div class="leaderboard-sort">
+                            <button class="leaderboard-sort-btn active" data-sort="total">Volume</button>
+                            <button class="leaderboard-sort-btn" data-sort="wave">WAVE %</button>
+                        </div>
+                        <button class="btn-close-leaderboard" id="btnCloseLeaderboard">&times;</button>
+                    </div>
+                </div>
+                <div class="leaderboard-popup-list" id="leaderboardPopupList">
+                    <!-- Rendered by JS -->
+                </div>
+            </div>
         </div>
 
         <!-- Put/Call Walls Popup -->
