@@ -88,10 +88,10 @@ DEFAULT_TICKERS: List[str] = [
 # GEX CALCULATION SETTINGS
 # =============================================================================
 # Minimum Open Interest to include a strike
-MIN_OPEN_INTEREST = 500
+MIN_OPEN_INTEREST = 100  # Lowered from 500 to show more data for individual stocks
 
 # Minimum absolute GEX value to include (in dollars)
-MIN_GEX_VALUE = 10_000_000  # $10M
+MIN_GEX_VALUE = 100_000  # $100K - Lowered from $10M to show more data for individual stocks
 
 # Maximum number of zones to return
 MAX_ZONES = 20
