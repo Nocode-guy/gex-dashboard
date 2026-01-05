@@ -4185,8 +4185,8 @@ async function init() {
             console.log('User authenticated, preferences loaded from server');
         }
 
-        // Check API health
-        const health = await fetchAPI('/');
+        // Check API health (use /health endpoint, not / which redirects)
+        const health = await fetchAPI('/health');
         console.log('API connected:', health);
 
         elements.dataSource.textContent = 'MarketData.app (Real Greeks)';
