@@ -568,11 +568,11 @@ class RefreshManager:
                 from database import save_intraday_snapshot
                 # Prepare heatmap data for storage
                 heatmap_data = None
-                if result.heatmap:
+                if result.heatmap_strikes:
                     heatmap_data = {
-                        "strikes": result.heatmap.strikes,
-                        "expirations": result.heatmap.expirations,
-                        "data": result.heatmap.data
+                        "strikes": result.heatmap_strikes,
+                        "expirations": result.heatmap_expirations,
+                        "data": result.heatmap_data
                     }
 
                 saved = save_intraday_snapshot(
