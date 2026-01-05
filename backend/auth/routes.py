@@ -212,14 +212,34 @@ async def logout(
     response: Response,
     refresh_token: Optional[str] = Cookie(None)
 ):
-    """Logout and revoke refresh token"""
-    if refresh_token:
-        # Find and revoke the token
-        # Note: In production, you'd hash the token and look it up
-        pass
+    """Logout and revoke all refresh tokens for the user"""
+    # Try to get user from access token (if valid)
+    # Import here to avoid circular dependency
+    from fastapi import Request
+    from .security import get_current_user, HTTPBearer, HTTPAuthorizationCredentials
 
-    # Clear the cookie
+    # If we have a refresh token, find and revoke tokens for that user
+    if refresh_token:
+        # Look up all refresh tokens and find matching user
+        # Since tokens are hashed, we need to check each one
+        from db_postgres import get_pool
+        pool = get_pool()
+        if pool:
+            async with pool.acquire() as conn:
+                # Get all non-revoked, non-expired tokens
+                rows = await conn.fetch("""
+                    SELECT id, user_id, token_hash FROM refresh_tokens
+                    WHERE revoked = FALSE AND expires_at > NOW()
+                """)
+                for row in rows:
+                    if verify_password(refresh_token, row['token_hash']):
+                        # Found the matching token - revoke all tokens for this user
+                        await revoke_all_user_tokens(str(row['user_id']))
+                        break
+
+    # Clear the cookies
     response.delete_cookie(key="refresh_token", path="/auth")
+    response.delete_cookie(key="refresh_token", path="/")
 
     return {"message": "Logged out successfully"}
 
@@ -491,9 +511,9 @@ async def toggle_admin_endpoint(user_id: str, admin: dict = Depends(require_admi
 # Setup secret - set this in environment to enable setup endpoint
 SETUP_SECRET = os.environ.get("GEX_SETUP_SECRET", "")
 
-# Pre-configured admin
-INITIAL_ADMIN_EMAIL = "morganwillie93@gmail.com"
-INITIAL_ADMIN_PASSWORD = "GexAdmin2024!"  # Change after first login!
+# Admin credentials from environment variables ONLY (no hardcoded values)
+INITIAL_ADMIN_EMAIL = os.environ.get("GEX_ADMIN_EMAIL", "")
+INITIAL_ADMIN_PASSWORD = os.environ.get("GEX_ADMIN_PASSWORD", "")
 
 setup_router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -505,8 +525,12 @@ async def initialize_admin(secret: str):
 
     Usage: GET /setup/init/YOUR_SETUP_SECRET
 
-    Set GEX_SETUP_SECRET environment variable to enable this endpoint.
-    After creating admin, remove or change the secret.
+    Required environment variables:
+    - GEX_SETUP_SECRET: The secret to access this endpoint
+    - GEX_ADMIN_EMAIL: Admin email address
+    - GEX_ADMIN_PASSWORD: Admin password (min 8 chars)
+
+    After creating admin, remove GEX_SETUP_SECRET to disable this endpoint.
     """
     # Check if setup is enabled
     if not SETUP_SECRET:
@@ -518,6 +542,19 @@ async def initialize_admin(secret: str):
     # Verify secret
     if secret != SETUP_SECRET:
         raise HTTPException(status_code=403, detail="Invalid setup secret")
+
+    # Validate admin credentials are set in environment
+    if not INITIAL_ADMIN_EMAIL:
+        raise HTTPException(
+            status_code=400,
+            detail="GEX_ADMIN_EMAIL environment variable not set"
+        )
+
+    if not INITIAL_ADMIN_PASSWORD or len(INITIAL_ADMIN_PASSWORD) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="GEX_ADMIN_PASSWORD must be set and at least 8 characters"
+        )
 
     # Check if admin already exists
     existing = await get_user_by_email(INITIAL_ADMIN_EMAIL)
@@ -577,12 +614,10 @@ async def initialize_admin(secret: str):
         "status": "created",
         "message": "Admin user created successfully!",
         "email": INITIAL_ADMIN_EMAIL,
-        "password": INITIAL_ADMIN_PASSWORD,
-        "warning": "CHANGE YOUR PASSWORD AFTER FIRST LOGIN!",
         "next_steps": [
             "1. Go to /login",
-            "2. Sign in with the credentials above",
-            "3. Change your password",
-            "4. Remove GEX_SETUP_SECRET from environment variables"
+            "2. Sign in with your GEX_ADMIN_EMAIL and GEX_ADMIN_PASSWORD",
+            "3. Change your password immediately",
+            "4. Remove GEX_SETUP_SECRET, GEX_ADMIN_EMAIL, GEX_ADMIN_PASSWORD from environment"
         ]
     }

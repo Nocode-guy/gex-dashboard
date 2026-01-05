@@ -8,9 +8,32 @@ from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status, Request, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-# JWT Configuration
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", secrets.token_hex(32))
-JWT_REFRESH_SECRET_KEY = os.environ.get("JWT_REFRESH_SECRET_KEY", secrets.token_hex(32))
+# JWT Configuration - MUST be set in production environment
+_jwt_secret = os.environ.get("JWT_SECRET_KEY")
+_jwt_refresh_secret = os.environ.get("JWT_REFRESH_SECRET_KEY")
+
+# Validate secrets are set in production (when DATABASE_URL is set, we're on Render)
+if os.environ.get("DATABASE_URL"):
+    if not _jwt_secret:
+        raise RuntimeError(
+            "SECURITY ERROR: JWT_SECRET_KEY environment variable must be set in production! "
+            "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    if not _jwt_refresh_secret:
+        raise RuntimeError(
+            "SECURITY ERROR: JWT_REFRESH_SECRET_KEY environment variable must be set in production! "
+            "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    JWT_SECRET_KEY = _jwt_secret
+    JWT_REFRESH_SECRET_KEY = _jwt_refresh_secret
+    print("[Security] JWT secrets loaded from environment")
+else:
+    # Development mode - use random secrets (will change on restart)
+    JWT_SECRET_KEY = _jwt_secret or secrets.token_hex(32)
+    JWT_REFRESH_SECRET_KEY = _jwt_refresh_secret or secrets.token_hex(32)
+    if not _jwt_secret:
+        print("[Security] WARNING: Using random JWT_SECRET_KEY (dev mode only)")
+
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 REFRESH_TOKEN_EXPIRE_DAYS = 7
