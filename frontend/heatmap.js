@@ -454,9 +454,37 @@ async function fetchAPI(endpoint, options = {}) {
 
 async function fetchSymbols() {
     try {
-        // Add cache buster to prevent browser caching
+        let userSymbols = [];
+
+        // If authenticated, fetch user's personal symbols first
+        if (isAuthenticated && accessToken) {
+            try {
+                const userData = await fetchAPI('/api/me/symbols');
+                userSymbols = userData.symbols || [];
+            } catch (err) {
+                console.log('Could not fetch user symbols, using server list');
+            }
+        }
+
+        // Fetch server's full symbol data (for spot prices, net GEX, etc.)
         const data = await fetchAPI(`/symbols?_=${Date.now()}`);
-        symbols = data.symbols || [];
+        const serverSymbols = data.symbols || [];
+
+        // If user has saved symbols, filter server data to only their symbols
+        if (userSymbols.length > 0) {
+            // Map server data by symbol for quick lookup
+            const serverMap = {};
+            serverSymbols.forEach(s => { serverMap[s.symbol] = s; });
+
+            // Build symbols array with user's symbols, using server data where available
+            symbols = userSymbols.map(sym => {
+                return serverMap[sym] || { symbol: sym, spot_price: null, net_gex: null };
+            });
+        } else {
+            // Not authenticated or no saved symbols - use server's default list
+            symbols = serverSymbols;
+        }
+
         renderSymbolTabs();
         elements.symbolCount.textContent = symbols.length;
         return symbols;
@@ -553,6 +581,25 @@ async function checkMarketStatus() {
 }
 
 async function addSymbol(symbol) {
+    // If authenticated, add to user's personal list
+    if (isAuthenticated && accessToken) {
+        const response = await fetch(`${API_BASE}/api/me/symbols/${symbol}`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            credentials: 'include'
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            const errorMsg = data.detail || `HTTP ${response.status}`;
+            throw new Error(errorMsg);
+        }
+
+        return data;
+    }
+
+    // Not authenticated - add to server's global list
     const response = await fetch(`${API_BASE}/symbols/${symbol}`, {
         method: 'POST'
     });
@@ -560,7 +607,6 @@ async function addSymbol(symbol) {
     const data = await response.json();
 
     if (!response.ok) {
-        // Extract error message from response
         const errorMsg = data.detail || `HTTP ${response.status}`;
         throw new Error(errorMsg);
     }
@@ -570,8 +616,15 @@ async function addSymbol(symbol) {
 
 async function removeSymbol(symbol) {
     try {
-        const response = await fetch(`${API_BASE}/symbols/${symbol}`, {
-            method: 'DELETE'
+        // If authenticated, remove from user's personal list
+        const endpoint = (isAuthenticated && accessToken)
+            ? `${API_BASE}/api/me/symbols/${symbol}`
+            : `${API_BASE}/symbols/${symbol}`;
+
+        const response = await fetch(endpoint, {
+            method: 'DELETE',
+            headers: (isAuthenticated && accessToken) ? getAuthHeaders() : {},
+            credentials: 'include'
         });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
