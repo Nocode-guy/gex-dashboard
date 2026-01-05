@@ -1741,6 +1741,14 @@ if os.path.exists(FRONTEND_DIR):
         # Fallback to login if register.html doesn't exist yet
         return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))
 
+    @app.get("/reset-password")
+    async def serve_reset_password():
+        """Serve the password reset page."""
+        reset_path = os.path.join(FRONTEND_DIR, "reset-password.html")
+        if os.path.exists(reset_path):
+            return FileResponse(reset_path)
+        return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))
+
     @app.get("/admin")
     async def serve_admin(
         gex_session: Optional[str] = Cookie(None),

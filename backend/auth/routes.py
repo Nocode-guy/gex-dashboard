@@ -66,13 +66,34 @@ async def register(user_data: UserCreate):
     # Initialize default preferences and symbols
     await init_user_defaults(user_id)
 
-    # Send verification email
-    await send_verification_email(user_data.email, verification_token)
+    # Check if email service is configured
+    from .email import RESEND_API_KEY
 
-    return {
-        "message": "Registration successful! Please check your email to verify your account.",
-        "email": user_data.email
-    }
+    if RESEND_API_KEY:
+        # Email configured - send verification email
+        email_sent = await send_verification_email(user_data.email, verification_token)
+        if email_sent:
+            return {
+                "message": "Registration successful! Please check your email to verify your account.",
+                "email": user_data.email
+            }
+        else:
+            # Email failed to send - auto-verify
+            await verify_user_email(user_id)
+            return {
+                "message": "Registration successful! Your email has been auto-verified. Waiting for admin approval.",
+                "email": user_data.email,
+                "auto_verified": True
+            }
+    else:
+        # No email service - auto-verify the email
+        await verify_user_email(user_id)
+        print(f"[Auth] Email service not configured - auto-verified user {user_data.email}")
+        return {
+            "message": "Registration successful! Your account is pending admin approval.",
+            "email": user_data.email,
+            "auto_verified": True
+        }
 
 
 @router.get("/verify-email/{token}")
@@ -298,13 +319,24 @@ async def check_auth_status(
 @router.post("/forgot-password")
 async def forgot_password(data: PasswordReset):
     """Request password reset"""
+    from .email import RESEND_API_KEY
+
     user = await get_user_by_email(data.email)
+
+    # Check if email service is configured
+    if not RESEND_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Password reset is not available. Email service not configured. Contact admin."
+        )
 
     # Always return same message (don't reveal if email exists)
     if user:
         token = generate_password_reset_token()
         await set_password_reset_token(data.email, token)
-        await send_password_reset_email(data.email, token)
+        email_sent = await send_password_reset_email(data.email, token)
+        if not email_sent:
+            print(f"[Auth] Failed to send password reset email to {data.email}")
 
     return {"message": "If that email is registered, a password reset link has been sent."}
 
