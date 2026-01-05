@@ -325,7 +325,7 @@ def get_next_opex() -> datetime:
 # REFRESH SETTINGS
 # =============================================================================
 REFRESH_INTERVALS = [1, 5, 15, 30, 60]  # Available intervals in minutes
-DEFAULT_REFRESH_INTERVAL = 5  # Default 5 minutes
+DEFAULT_REFRESH_INTERVAL = 1  # Default 1 minute
 
 # Stale data thresholds (multiples of refresh interval)
 STALE_WARNING_MULTIPLIER = 2  # Yellow badge

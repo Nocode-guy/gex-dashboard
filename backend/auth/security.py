@@ -35,7 +35,7 @@ else:
         print("[Security] WARNING: Using random JWT_SECRET_KEY (dev mode only)")
 
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 15
+ACCESS_TOKEN_EXPIRE_MINUTES = 60  # Extended from 15 to 60 minutes
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 # Rate limiting
