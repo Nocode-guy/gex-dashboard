@@ -4019,8 +4019,8 @@ function setupEventHandlers() {
     const adminLink = document.getElementById('adminLink');
     const btnChangePassword = document.getElementById('btnChangePassword');
     const changePasswordModal = document.getElementById('changePasswordModal');
-    const btnClosePasswordModal = document.getElementById('btnClosePasswordModal');
-    const btnCancelPassword = document.getElementById('btnCancelPassword');
+    const btnClosePasswordModal = document.getElementById('closePasswordModal');
+    const btnCancelPassword = document.getElementById('cancelPasswordChange');
     const changePasswordForm = document.getElementById('changePasswordForm');
 
     // User menu dropdown toggle
@@ -4079,17 +4079,26 @@ function setupEventHandlers() {
             const errorEl = document.getElementById('passwordError');
             const currentPw = document.getElementById('currentPassword').value;
             const newPw = document.getElementById('newPassword').value;
-            const confirmPw = document.getElementById('confirmPassword').value;
+            const confirmPw = document.getElementById('confirmNewPassword').value;
 
             if (newPw !== confirmPw) {
-                if (errorEl) errorEl.textContent = 'New passwords do not match';
+                if (errorEl) {
+                    errorEl.textContent = 'New passwords do not match';
+                    errorEl.style.display = 'block';
+                }
                 return;
             }
 
             if (newPw.length < 8) {
-                if (errorEl) errorEl.textContent = 'Password must be at least 8 characters';
+                if (errorEl) {
+                    errorEl.textContent = 'Password must be at least 8 characters';
+                    errorEl.style.display = 'block';
+                }
                 return;
             }
+
+            // Hide error before attempting
+            if (errorEl) errorEl.style.display = 'none';
 
             try {
                 const res = await fetch(`${API_BASE}/api/me/change-password`, {
@@ -4108,10 +4117,16 @@ function setupEventHandlers() {
                     closePasswordModal();
                     alert('Password changed successfully!');
                 } else {
-                    if (errorEl) errorEl.textContent = data.detail || 'Failed to change password';
+                    if (errorEl) {
+                        errorEl.textContent = data.detail || 'Failed to change password';
+                        errorEl.style.display = 'block';
+                    }
                 }
             } catch (err) {
-                if (errorEl) errorEl.textContent = 'Network error. Please try again.';
+                if (errorEl) {
+                    errorEl.textContent = 'Network error. Please try again.';
+                    errorEl.style.display = 'block';
+                }
             }
         });
     }
