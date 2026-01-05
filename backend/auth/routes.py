@@ -182,7 +182,7 @@ async def login(user_data: UserLogin, response: Response):
     # Update login success
     await update_login_success(str(user['id']))
 
-    # Set refresh token cookie
+    # Set refresh token cookie (path="/" so it's available to all routes including /app)
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
@@ -190,7 +190,7 @@ async def login(user_data: UserLogin, response: Response):
         secure=True,  # HTTPS only in production
         samesite="lax",
         max_age=7 * 24 * 60 * 60,  # 7 days
-        path="/auth"  # Only sent to auth endpoints
+        path="/"  # Available site-wide for auth checks on /app, /admin, etc.
     )
 
     return TokenResponse(
