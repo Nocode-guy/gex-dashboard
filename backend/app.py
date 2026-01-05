@@ -1749,6 +1749,14 @@ if os.path.exists(FRONTEND_DIR):
             return FileResponse(reset_path)
         return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))
 
+    @app.get("/guide")
+    async def serve_trading_guide():
+        """Serve the trading guide page."""
+        guide_path = os.path.join(FRONTEND_DIR, "trading-guide.html")
+        if os.path.exists(guide_path):
+            return FileResponse(guide_path)
+        return RedirectResponse(url="/app", status_code=302)
+
     @app.get("/admin")
     async def serve_admin(
         gex_session: Optional[str] = Cookie(None),

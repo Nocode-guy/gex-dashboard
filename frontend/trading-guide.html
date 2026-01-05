@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEX Dashboard - Trading Guide</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            line-height: 1.6;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(30, 30, 50, 0.95);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #6c63ff, #f5576c);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+            font-size: 1.1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 24px;
+        }
+
+        .card {
+            background: rgba(40, 40, 70, 0.6);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid rgba(100, 100, 150, 0.2);
+        }
+
+        .card h2 {
+            font-size: 1.3rem;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card h2 .icon { font-size: 1.5rem; }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(100,100,150,0.1);
+        }
+
+        .metric-row:last-child { border-bottom: none; }
+
+        .metric-name { color: #aaa; }
+        .metric-value { font-weight: 600; }
+
+        .positive { color: #4ade80; }
+        .negative { color: #f87171; }
+        .neutral { color: #fbbf24; }
+
+        .tip {
+            background: rgba(108, 99, 255, 0.1);
+            border-left: 3px solid #6c63ff;
+            padding: 12px 16px;
+            margin: 12px 0;
+            border-radius: 0 8px 8px 0;
+            font-size: 0.9rem;
+        }
+
+        .strategy-box {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+        }
+
+        .strategy-box h4 {
+            color: #6c63ff;
+            margin-bottom: 8px;
+        }
+
+        ul { padding-left: 20px; }
+        li { margin: 6px 0; }
+
+        .full-width { grid-column: 1 / -1; }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #6c63ff;
+            text-decoration: none;
+        }
+
+        .back-link:hover { text-decoration: underline; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+        }
+
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid rgba(100,100,150,0.2);
+        }
+
+        th { color: #888; font-weight: 500; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .badge-green { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        .badge-red { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+        .badge-yellow { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+
+        @media print {
+            body { background: white; color: black; }
+            .container { box-shadow: none; }
+            .card { border: 1px solid #ddd; }
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 20px; }
+            h1 { font-size: 1.8rem; }
+            .grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/app" class="back-link">&larr; Back to Dashboard</a>
+
+        <h1>GEX Dashboard Trading Guide</h1>
+        <p class="subtitle">Understanding Gamma Exposure for Smarter Trading Decisions</p>
+
+        <div class="grid">
+            <!-- What is GEX -->
+            <div class="card">
+                <h2><span class="icon">⚡</span> What is GEX?</h2>
+                <p><strong>Gamma Exposure (GEX)</strong> measures how much market makers must buy or sell to hedge their options positions as price moves.</p>
+
+                <div class="strategy-box">
+                    <h4>Key Concept</h4>
+                    <p>When price approaches a <strong>high GEX strike</strong>, market makers' hedging activity creates price magnetism or resistance.</p>
+                </div>
+
+                <div class="metric-row">
+                    <span class="metric-name">Positive GEX</span>
+                    <span class="metric-value positive">Price Magnet</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-name">Negative GEX</span>
+                    <span class="metric-value negative">Price Accelerator</span>
+                </div>
+            </div>
+
+            <!-- Key Zones -->
+            <div class="card">
+                <h2><span class="icon">👑</span> Key Zones Explained</h2>
+
+                <table>
+                    <tr>
+                        <th>Zone</th>
+                        <th>Meaning</th>
+                        <th>Trading Action</th>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-green">KING</span></td>
+                        <td>Highest +GEX strike</td>
+                        <td>Strong magnet, price drawn here</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-red">GATEKEEPER</span></td>
+                        <td>Highest -GEX strike</td>
+                        <td>Accelerator zone, fast moves</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-yellow">ZERO GAMMA</span></td>
+                        <td>GEX flips sign</td>
+                        <td>Below = volatile, Above = stable</td>
+                    </tr>
+                </table>
+
+                <div class="tip">
+                    <strong>Pro Tip:</strong> When price is between King and Zero Gamma, expect range-bound action. Below Zero Gamma, expect trending moves.
+                </div>
+            </div>
+
+            <!-- VEX & DEX -->
+            <div class="card">
+                <h2><span class="icon">📈</span> VEX & DEX</h2>
+
+                <p><strong>Vanna Exposure (VEX)</strong> - Sensitivity to implied volatility changes</p>
+                <ul>
+                    <li>High VEX = IV changes cause big delta hedging</li>
+                    <li>Watch during earnings, FOMC, CPI</li>
+                </ul>
+
+                <p style="margin-top: 16px;"><strong>Delta Exposure (DEX)</strong> - Raw directional exposure</p>
+                <ul>
+                    <li>Shows where directional bets are concentrated</li>
+                    <li>High DEX = potential support/resistance</li>
+                </ul>
+
+                <div class="tip">
+                    <strong>Use VEX when:</strong> Expecting volatility events. VEX shows where IV crush/expansion will have biggest impact.
+                </div>
+            </div>
+
+            <!-- Options Flow -->
+            <div class="card">
+                <h2><span class="icon">📊</span> Options Flow Tab</h2>
+
+                <p>Real-time unusual options activity showing:</p>
+                <ul>
+                    <li><strong>Sweeps</strong> - Aggressive, multi-exchange orders</li>
+                    <li><strong>Blocks</strong> - Large institutional trades</li>
+                    <li><strong>Premium</strong> - Dollar amount at each strike</li>
+                </ul>
+
+                <div class="strategy-box">
+                    <h4>Reading Flow</h4>
+                    <p><span class="positive">Green bars</span> = Call premium (bullish)<br>
+                    <span class="negative">Red bars</span> = Put premium (bearish)<br>
+                    Watch for imbalances at key GEX levels!</p>
+                </div>
+            </div>
+
+            <!-- Heatmap Guide -->
+            <div class="card">
+                <h2><span class="icon">🗺️</span> Reading the Heatmap</h2>
+
+                <table>
+                    <tr>
+                        <th>Color</th>
+                        <th>GEX Level</th>
+                        <th>Effect</th>
+                    </tr>
+                    <tr>
+                        <td style="color: #4ade80;">■ Bright Green</td>
+                        <td>Strong +GEX</td>
+                        <td>Price magnet, resistance</td>
+                    </tr>
+                    <tr>
+                        <td style="color: #22c55e;">■ Green</td>
+                        <td>Moderate +GEX</td>
+                        <td>Slows price movement</td>
+                    </tr>
+                    <tr>
+                        <td style="color: #666;">■ Gray</td>
+                        <td>Neutral</td>
+                        <td>Minimal MM hedging</td>
+                    </tr>
+                    <tr>
+                        <td style="color: #ef4444;">■ Red</td>
+                        <td>Moderate -GEX</td>
+                        <td>Speeds up moves</td>
+                    </tr>
+                    <tr>
+                        <td style="color: #dc2626;">■ Bright Red</td>
+                        <td>Strong -GEX</td>
+                        <td>Accelerator zone</td>
+                    </tr>
+                </table>
+
+                <div class="tip">
+                    <strong>Columns</strong> show expiration dates. Nearest expiration (0DTE) has strongest effect!
+                </div>
+            </div>
+
+            <!-- Trading Strategies -->
+            <div class="card">
+                <h2><span class="icon">🎯</span> Quick Trading Strategies</h2>
+
+                <div class="strategy-box">
+                    <h4>1. Mean Reversion (Above Zero Gamma)</h4>
+                    <p>Fade moves away from King strike. Price tends to return to high +GEX areas.</p>
+                </div>
+
+                <div class="strategy-box">
+                    <h4>2. Trend Following (Below Zero Gamma)</h4>
+                    <p>Trade with momentum. -GEX zones accelerate moves, don't fight the trend.</p>
+                </div>
+
+                <div class="strategy-box">
+                    <h4>3. Level Trading</h4>
+                    <p>Use King as target, Gatekeeper as stop zone. High GEX strikes act as S/R.</p>
+                </div>
+            </div>
+
+            <!-- Dashboard Features -->
+            <div class="card full-width">
+                <h2><span class="icon">⚙️</span> Dashboard Features Quick Reference</h2>
+
+                <div class="grid" style="gap: 16px;">
+                    <div>
+                        <h4 style="color: #6c63ff; margin-bottom: 8px;">Views</h4>
+                        <ul>
+                            <li><strong>GEX</strong> - Gamma exposure heatmap</li>
+                            <li><strong>VEX</strong> - Vanna exposure heatmap</li>
+                            <li><strong>DEX</strong> - Delta exposure heatmap</li>
+                            <li><strong>Flow</strong> - Real-time options flow</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="color: #6c63ff; margin-bottom: 8px;">Expiration Filters</h4>
+                        <ul>
+                            <li><strong>ALL</strong> - All expirations combined</li>
+                            <li><strong>0DTE</strong> - Same-day expiration only</li>
+                            <li><strong>WEEKLY</strong> - This week's expiration</li>
+                            <li><strong>MONTHLY</strong> - Monthly OPEX only</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="color: #6c63ff; margin-bottom: 8px;">Key Metrics Bar</h4>
+                        <ul>
+                            <li><strong>NET GEX</strong> - Total gamma (+ = stable, - = volatile)</li>
+                            <li><strong>KING</strong> - Highest +GEX strike (magnet)</li>
+                            <li><strong>ZERO GAMMA</strong> - Pivot level</li>
+                            <li><strong>TO KING</strong> - Distance to King strike</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="color: #6c63ff; margin-bottom: 8px;">Controls</h4>
+                        <ul>
+                            <li><strong>+ Add symbol</strong> - Track new tickers</li>
+                            <li><strong>Trinity View</strong> - 3-symbol comparison</li>
+                            <li><strong>Refresh</strong> - Force data update</li>
+                            <li><strong>👤 Menu</strong> - Account settings</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Rules -->
+            <div class="card full-width" style="background: linear-gradient(135deg, rgba(108, 99, 255, 0.1), rgba(245, 87, 108, 0.1));">
+                <h2><span class="icon">📋</span> The 5 Rules of GEX Trading</h2>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+                    <div class="strategy-box">
+                        <h4>1. Respect the King</h4>
+                        <p>Price gravitates to highest +GEX. Use as profit target.</p>
+                    </div>
+                    <div class="strategy-box">
+                        <h4>2. Fear the Gatekeeper</h4>
+                        <p>Highest -GEX accelerates moves. Set stops beyond it.</p>
+                    </div>
+                    <div class="strategy-box">
+                        <h4>3. Know Your Zone</h4>
+                        <p>Above Zero Gamma = range. Below = trend.</p>
+                    </div>
+                    <div class="strategy-box">
+                        <h4>4. Watch 0DTE</h4>
+                        <p>Same-day expiration has strongest gamma effect.</p>
+                    </div>
+                    <div class="strategy-box">
+                        <h4>5. Flow Confirms</h4>
+                        <p>Use options flow to confirm GEX levels.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <p style="text-align: center; margin-top: 40px; color: #666;">
+            GEX Dashboard &copy; 2024 | Data updates every 5 minutes during market hours
+        </p>
+    </div>
+</body>
+</html>
