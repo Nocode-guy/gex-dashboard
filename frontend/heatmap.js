@@ -959,22 +959,23 @@ function renderGexHeatmap(zones, priceRange) {
 
         // Normalize GEX to 0-1 intensity
         const intensity = Math.abs(zone.gex) / maxGex;
-        const alpha = 0.75 + (intensity * 0.25);  // 0.75 to 1.0 opacity - max visibility
 
         // User-specified colors:
         // Support: Light Blue #90D5FF → Dark Blue #000080
         // Acceleration: Yellow #FFCE1B → Orange #FF7518
-        let r, g, b;
+        let r, g, b, alpha;
         if (zone.gex > 0) {
             // Support: Light Blue (144,213,255) → Dark Blue (0,0,128)
             r = Math.round(144 - (intensity * 144));  // 144 → 0
             g = Math.round(213 - (intensity * 213));  // 213 → 0
             b = Math.round(255 - (intensity * 127));  // 255 → 128
+            alpha = 0.5 + (intensity * 0.2);  // 0.5 to 0.7 for blue (lower opacity)
         } else {
             // Acceleration: Yellow (255,206,27) → Orange (255,117,24)
             r = 255;
             g = Math.round(206 - (intensity * 89));   // 206 → 117
             b = Math.round(27 - (intensity * 3));     // 27 → 24
+            alpha = 0.75 + (intensity * 0.25);  // 0.75 to 1.0 for yellow/orange
         }
 
         heatmapCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
