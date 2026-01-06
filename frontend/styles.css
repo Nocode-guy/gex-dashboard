@@ -7272,6 +7272,127 @@ body.trinity-mode .trinity-container {
     color: white;
 }
 
+/* Heatmap Info Button */
+.heatmap-info-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid var(--text-muted);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: all 0.2s;
+}
+
+.heatmap-info-btn:hover {
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+/* Heatmap Info Popup */
+.heatmap-info-popup {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.heatmap-info-popup.visible {
+    display: flex;
+}
+
+.heatmap-info-content {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 450px;
+    width: 90%;
+    position: relative;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.heatmap-info-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.heatmap-info-close:hover {
+    color: var(--text-primary);
+}
+
+.heatmap-info-content h3 {
+    margin: 0 0 16px 0;
+    color: var(--text-primary);
+    font-size: 18px;
+}
+
+.heatmap-color-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.legend-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.color-box {
+    width: 24px;
+    height: 16px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.color-box.deep-blue { background: rgba(37, 99, 235, 0.8); }
+.color-box.light-blue { background: rgba(96, 165, 250, 0.8); }
+.color-box.light-purple { background: rgba(167, 139, 250, 0.8); }
+.color-box.deep-purple { background: rgba(126, 34, 206, 0.8); }
+
+.heatmap-info-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.heatmap-info-text p {
+    margin: 0 0 12px 0;
+}
+
+.heatmap-info-text ul {
+    margin: 8px 0 0 0;
+    padding-left: 20px;
+}
+
+.heatmap-info-text li {
+    margin-bottom: 4px;
+}
+
 /* GEX Heatmap Canvas */
 .heatmap-canvas {
     position: absolute;

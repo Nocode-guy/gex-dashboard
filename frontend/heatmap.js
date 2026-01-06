@@ -959,15 +959,32 @@ function renderGexHeatmap(zones, priceRange) {
 
         // Normalize GEX to 0-1 intensity
         const intensity = Math.abs(zone.gex) / maxGex;
-        const alpha = 0.1 + (intensity * 0.5);  // 0.1 to 0.6 opacity
+        const alpha = 0.15 + (intensity * 0.55);  // 0.15 to 0.7 opacity
 
-        // Color: green for positive GEX (support), red for negative GEX (acceleration)
+        // Color scheme: Blue for positive GEX, Purple for negative GEX
+        // Strong = deep color, Weak = light color
+        let r, g, b;
         if (zone.gex > 0) {
-            heatmapCtx.fillStyle = `rgba(34, 197, 94, ${alpha})`;  // Green
+            // Positive GEX (Support/Magnet): Light Blue (weak) → Deep Blue (strong)
+            if (intensity < 0.5) {
+                // Light Blue for weak positive: rgb(96, 165, 250)
+                r = 96; g = 165; b = 250;
+            } else {
+                // Deep Blue for strong positive: rgb(37, 99, 235)
+                r = 37; g = 99; b = 235;
+            }
         } else {
-            heatmapCtx.fillStyle = `rgba(239, 68, 68, ${alpha})`;  // Red
+            // Negative GEX (Acceleration): Light Purple (weak) → Deep Purple (strong)
+            if (intensity < 0.5) {
+                // Light Purple for weak negative: rgb(167, 139, 250)
+                r = 167; g = 139; b = 250;
+            } else {
+                // Deep Purple for strong negative: rgb(126, 34, 206)
+                r = 126; g = 34; b = 206;
+            }
         }
 
+        heatmapCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
         heatmapCtx.fillRect(0, y - bandHeight/2, rect.width, bandHeight);
     });
 
@@ -1049,6 +1066,37 @@ function setupChartModeTabs() {
             }, 100);
         }
     });
+
+    // Setup heatmap info popup
+    const infoBtn = document.getElementById('heatmapInfoBtn');
+    const infoPopup = document.getElementById('heatmapInfoPopup');
+    const infoClose = document.getElementById('heatmapInfoClose');
+
+    if (infoBtn && infoPopup) {
+        infoBtn.addEventListener('click', () => {
+            infoPopup.classList.add('visible');
+        });
+
+        if (infoClose) {
+            infoClose.addEventListener('click', () => {
+                infoPopup.classList.remove('visible');
+            });
+        }
+
+        // Close on background click
+        infoPopup.addEventListener('click', (e) => {
+            if (e.target === infoPopup) {
+                infoPopup.classList.remove('visible');
+            }
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && infoPopup.classList.contains('visible')) {
+                infoPopup.classList.remove('visible');
+            }
+        });
+    }
 }
 
 // Fetch candle data from API

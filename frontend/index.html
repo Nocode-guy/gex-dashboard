@@ -232,6 +232,45 @@
                     <div class="chart-mode-tabs">
                         <button class="chart-mode-btn active" data-mode="basic">Basic</button>
                         <button class="chart-mode-btn" data-mode="heatmap">Heatmap</button>
+                        <button class="heatmap-info-btn" id="heatmapInfoBtn" title="How to read the heatmap">?</button>
+                    </div>
+
+                    <!-- Heatmap Info Popup -->
+                    <div class="heatmap-info-popup" id="heatmapInfoPopup">
+                        <div class="heatmap-info-content">
+                            <button class="heatmap-info-close" id="heatmapInfoClose">&times;</button>
+                            <h3>GEX Heatmap Guide</h3>
+                            <div class="heatmap-color-legend">
+                                <div class="legend-row">
+                                    <span class="color-box deep-blue"></span>
+                                    <span><strong>Deep Blue</strong> - Strong Support / Magnet</span>
+                                </div>
+                                <div class="legend-row">
+                                    <span class="color-box light-blue"></span>
+                                    <span><strong>Light Blue</strong> - Weak Support</span>
+                                </div>
+                                <div class="legend-row">
+                                    <span class="color-box light-purple"></span>
+                                    <span><strong>Light Purple</strong> - Weak Acceleration</span>
+                                </div>
+                                <div class="legend-row">
+                                    <span class="color-box deep-purple"></span>
+                                    <span><strong>Deep Purple</strong> - Strong Acceleration / Vol Expansion</span>
+                                </div>
+                            </div>
+                            <div class="heatmap-info-text">
+                                <p><strong>Blue Zones (Positive GEX):</strong><br>
+                                Price tends to slow down and consolidate. Market makers hedge by buying dips and selling rips, stabilizing price.</p>
+                                <p><strong>Purple Zones (Negative GEX):</strong><br>
+                                Price moves quickly through these areas. Market makers amplify moves, creating momentum and breakouts.</p>
+                                <p><strong>Trading Tips:</strong></p>
+                                <ul>
+                                    <li>Price approaching blue = expect reversal/consolidation</li>
+                                    <li>Price entering purple = expect momentum/breakout</li>
+                                    <li>Deeper colors = stronger effect</li>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                     <div class="chart-timeframe">
                         <button class="chart-tf-btn active" data-resolution="1">1m</button>
