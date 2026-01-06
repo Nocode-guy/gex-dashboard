@@ -7369,10 +7369,10 @@ body.trinity-mode .trinity-container {
     flex-shrink: 0;
 }
 
-.color-box.cyan { background: #00ffff; }
-.color-box.electric-blue { background: #0066ff; }
-.color-box.neon-yellow { background: #ffff00; }
-.color-box.hot-magenta { background: #ff00ff; }
+.color-box.light-blue { background: #90D5FF; }
+.color-box.dark-blue { background: #0000CD; }
+.color-box.yellow { background: #FFCE1B; }
+.color-box.orange { background: #FF7518; }
 
 .heatmap-brightness-note {
     font-size: 12px;
