@@ -843,39 +843,44 @@ function initHeatmapCanvas() {
     console.log('[Heatmap] Canvas initialized');
 }
 
-// Get visible price range from chart
+// Get visible price range from chart using coordinate conversion
 function getChartPriceRange() {
     if (!priceChart || !candleSeries) return null;
     try {
-        // Get the price scale and visible range
-        const priceScale = priceChart.priceScale('right');
-        // Use barsInLogicalRange to get visible data range
-        const logicalRange = priceChart.timeScale().getVisibleLogicalRange();
-        if (!logicalRange) return null;
+        const chartWrapper = document.getElementById('priceChart');
+        if (!chartWrapper) return null;
 
-        // Get the price range from visible bars
-        const barsInfo = candleSeries.barsInLogicalRange(logicalRange);
-        if (!barsInfo) return null;
+        const rect = chartWrapper.getBoundingClientRect();
+        const height = rect.height;
 
-        // Add some padding to the range
-        const range = barsInfo.barsBefore !== undefined ?
-            { minPrice: barsInfo.from, maxPrice: barsInfo.to } : null;
+        // Use coordinateToPrice to get the price at top and bottom of chart
+        const priceScale = candleSeries.priceScale();
 
-        if (!range) {
-            // Fallback: estimate from candle data
-            const data = candleSeries.data ? candleSeries.data() : [];
-            if (data.length > 0) {
-                let minPrice = Infinity, maxPrice = -Infinity;
-                data.forEach(candle => {
-                    if (candle.low < minPrice) minPrice = candle.low;
-                    if (candle.high > maxPrice) maxPrice = candle.high;
-                });
-                // Add 2% padding
-                const padding = (maxPrice - minPrice) * 0.02;
-                return { minPrice: minPrice - padding, maxPrice: maxPrice + padding };
-            }
+        // Get price at top (y=0) and bottom (y=height) of the chart
+        const topPrice = candleSeries.coordinateToPrice(0);
+        const bottomPrice = candleSeries.coordinateToPrice(height);
+
+        if (topPrice !== null && bottomPrice !== null) {
+            return {
+                minPrice: Math.min(topPrice, bottomPrice),
+                maxPrice: Math.max(topPrice, bottomPrice)
+            };
         }
-        return range;
+
+        // Fallback: estimate from all candle data
+        const data = candleSeries.data ? candleSeries.data() : [];
+        if (data.length > 0) {
+            let minPrice = Infinity, maxPrice = -Infinity;
+            data.forEach(candle => {
+                if (candle.low < minPrice) minPrice = candle.low;
+                if (candle.high > maxPrice) maxPrice = candle.high;
+            });
+            // Add 5% padding
+            const padding = (maxPrice - minPrice) * 0.05;
+            return { minPrice: minPrice - padding, maxPrice: maxPrice + padding };
+        }
+
+        return null;
     } catch (e) {
         console.warn('[Heatmap] Error getting price range:', e);
         return null;
@@ -884,13 +889,24 @@ function getChartPriceRange() {
 
 // Render GEX heatmap bands on canvas
 function renderGexHeatmap(zones, priceRange) {
-    if (!heatmapCtx || chartMode !== 'heatmap' || !zones || zones.length === 0) return;
+    if (!heatmapCtx || chartMode !== 'heatmap') {
+        console.log('[Heatmap] Skip render - mode:', chartMode, 'ctx:', !!heatmapCtx);
+        return;
+    }
+    if (!zones || zones.length === 0) {
+        console.log('[Heatmap] Skip render - no zones data');
+        return;
+    }
 
     const canvas = heatmapCanvas;
     const wrapper = canvas.parentElement;
-    if (!wrapper) return;
+    if (!wrapper) {
+        console.log('[Heatmap] Skip render - no wrapper');
+        return;
+    }
 
     const rect = wrapper.getBoundingClientRect();
+    console.log(`[Heatmap] Rendering ${zones.length} zones, canvas size: ${rect.width}x${rect.height}`);
 
     // Set canvas size to match container (accounting for device pixel ratio)
     const dpr = window.devicePixelRatio || 1;
@@ -970,10 +986,16 @@ function setupChartModeTabs() {
             chartMode = btn.dataset.mode;
             console.log(`[Chart] Mode changed to: ${chartMode}`);
 
+            // Initialize canvas if needed
+            if (!heatmapCanvas) {
+                initHeatmapCanvas();
+            }
+
             // Toggle canvas visibility
             const canvas = document.getElementById('gexHeatmapCanvas');
             if (canvas) {
                 canvas.classList.toggle('visible', chartMode === 'heatmap');
+                console.log(`[Heatmap] Canvas visible: ${chartMode === 'heatmap'}`);
             }
 
             // Toggle chart background
@@ -989,13 +1011,33 @@ function setupChartModeTabs() {
             }
 
             // Re-render heatmap if in heatmap mode
-            if (chartMode === 'heatmap' && gexZonesData.length > 0) {
-                setTimeout(() => {
-                    const range = getChartPriceRange();
-                    renderGexHeatmap(gexZonesData, range);
-                }, 50);
+            if (chartMode === 'heatmap') {
+                console.log(`[Heatmap] Zones available: ${gexZonesData.length}`);
+                if (gexZonesData.length > 0) {
+                    setTimeout(() => {
+                        const range = getChartPriceRange();
+                        console.log('[Heatmap] Price range:', range);
+                        renderGexHeatmap(gexZonesData, range);
+                    }, 100);
+                } else {
+                    console.log('[Heatmap] No zones data - reload chart to fetch');
+                    // Reload chart to get zones
+                    if (currentSymbol) {
+                        loadAndRenderChart(currentSymbol, chartResolution);
+                    }
+                }
             }
         });
+    });
+
+    // Re-render heatmap on window resize
+    window.addEventListener('resize', () => {
+        if (chartMode === 'heatmap' && gexZonesData.length > 0) {
+            setTimeout(() => {
+                const range = getChartPriceRange();
+                renderGexHeatmap(gexZonesData, range);
+            }, 100);
+        }
     });
 }
 
