@@ -971,10 +971,10 @@ function renderGexHeatmap(zones, priceRange) {
             b = Math.round(255 - (intensity * 127));  // 255 → 128
             alpha = 0.5 + (intensity * 0.2);  // 0.5 to 0.7 for blue (lower opacity)
         } else {
-            // Acceleration: Yellow (255,206,27) → Orange (255,117,24)
-            r = 255;
-            g = Math.round(206 - (intensity * 89));   // 206 → 117
-            b = Math.round(27 - (intensity * 3));     // 27 → 24
+            // Acceleration: Yellow (255,206,27) → Dark Orange (204,85,0)
+            r = Math.round(255 - (intensity * 51));   // 255 → 204
+            g = Math.round(206 - (intensity * 121));  // 206 → 85
+            b = Math.round(27 - (intensity * 27));    // 27 → 0
             alpha = 0.75 + (intensity * 0.25);  // 0.75 to 1.0 for yellow/orange
         }
 
