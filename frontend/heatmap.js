@@ -976,11 +976,11 @@ function renderGexHeatmap(zones, priceRange) {
         } else {
             // Negative GEX (Acceleration): Light Purple (weak) → Deep Purple (strong)
             if (intensity < 0.5) {
-                // Light Purple for weak negative: rgb(167, 139, 250)
-                r = 167; g = 139; b = 250;
+                // Light Purple for weak negative: #db89ff = rgb(219, 137, 255)
+                r = 219; g = 137; b = 255;
             } else {
-                // Deep Purple for strong negative: rgb(126, 34, 206)
-                r = 126; g = 34; b = 206;
+                // Deep Purple for strong negative: #7c00b2 = rgb(124, 0, 178)
+                r = 124; g = 0; b = 178;
             }
         }
 

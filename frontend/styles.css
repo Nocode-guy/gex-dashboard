@@ -7371,8 +7371,8 @@ body.trinity-mode .trinity-container {
 
 .color-box.deep-green { background: rgba(28, 150, 30, 0.8); }
 .color-box.light-green { background: rgba(126, 230, 128, 0.8); }
-.color-box.light-purple { background: rgba(167, 139, 250, 0.8); }
-.color-box.deep-purple { background: rgba(126, 34, 206, 0.8); }
+.color-box.light-purple { background: rgba(219, 137, 255, 0.8); }
+.color-box.deep-purple { background: rgba(124, 0, 178, 0.8); }
 
 .heatmap-info-text {
     font-size: 13px;
