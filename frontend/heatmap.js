@@ -735,6 +735,13 @@ let chartResolution = '5';
 let chartRefreshInterval = null;
 let chartLoadedSymbol = null;  // Track which symbol chart is showing
 
+// Heatmap mode variables
+let chartMode = 'basic';  // 'basic' or 'heatmap'
+let heatmapCanvas = null;
+let heatmapCtx = null;
+let gexZonesData = [];  // Store zones for heatmap rendering
+let heatmapRangeSubscribed = false;  // Track if we've subscribed to range changes
+
 // Start chart auto-refresh (every 10 seconds)
 function startChartAutoRefresh() {
     stopChartAutoRefresh();
@@ -823,6 +830,173 @@ function initPriceChart() {
         console.error('[Chart] Init error:', error);
         container.innerHTML = '<div class="chart-loading">Failed to initialize chart</div>';
     }
+}
+
+// Initialize heatmap canvas
+function initHeatmapCanvas() {
+    heatmapCanvas = document.getElementById('gexHeatmapCanvas');
+    if (!heatmapCanvas) {
+        console.warn('[Heatmap] Canvas element not found');
+        return;
+    }
+    heatmapCtx = heatmapCanvas.getContext('2d');
+    console.log('[Heatmap] Canvas initialized');
+}
+
+// Get visible price range from chart
+function getChartPriceRange() {
+    if (!priceChart || !candleSeries) return null;
+    try {
+        // Get the price scale and visible range
+        const priceScale = priceChart.priceScale('right');
+        // Use barsInLogicalRange to get visible data range
+        const logicalRange = priceChart.timeScale().getVisibleLogicalRange();
+        if (!logicalRange) return null;
+
+        // Get the price range from visible bars
+        const barsInfo = candleSeries.barsInLogicalRange(logicalRange);
+        if (!barsInfo) return null;
+
+        // Add some padding to the range
+        const range = barsInfo.barsBefore !== undefined ?
+            { minPrice: barsInfo.from, maxPrice: barsInfo.to } : null;
+
+        if (!range) {
+            // Fallback: estimate from candle data
+            const data = candleSeries.data ? candleSeries.data() : [];
+            if (data.length > 0) {
+                let minPrice = Infinity, maxPrice = -Infinity;
+                data.forEach(candle => {
+                    if (candle.low < minPrice) minPrice = candle.low;
+                    if (candle.high > maxPrice) maxPrice = candle.high;
+                });
+                // Add 2% padding
+                const padding = (maxPrice - minPrice) * 0.02;
+                return { minPrice: minPrice - padding, maxPrice: maxPrice + padding };
+            }
+        }
+        return range;
+    } catch (e) {
+        console.warn('[Heatmap] Error getting price range:', e);
+        return null;
+    }
+}
+
+// Render GEX heatmap bands on canvas
+function renderGexHeatmap(zones, priceRange) {
+    if (!heatmapCtx || chartMode !== 'heatmap' || !zones || zones.length === 0) return;
+
+    const canvas = heatmapCanvas;
+    const wrapper = canvas.parentElement;
+    if (!wrapper) return;
+
+    const rect = wrapper.getBoundingClientRect();
+
+    // Set canvas size to match container (accounting for device pixel ratio)
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    heatmapCtx.scale(dpr, dpr);
+
+    // Clear canvas
+    heatmapCtx.clearRect(0, 0, rect.width, rect.height);
+
+    // Use price range or estimate from zones
+    let minPrice = priceRange?.minPrice;
+    let maxPrice = priceRange?.maxPrice;
+
+    if (!minPrice || !maxPrice) {
+        // Estimate from zones
+        const strikes = zones.map(z => z.strike);
+        minPrice = Math.min(...strikes) * 0.98;
+        maxPrice = Math.max(...strikes) * 1.02;
+    }
+
+    const pricePerPixel = (maxPrice - minPrice) / rect.height;
+    if (pricePerPixel <= 0) return;
+
+    // Find max GEX for normalization
+    const maxGex = Math.max(...zones.map(z => Math.abs(z.gex)));
+    if (maxGex === 0) return;
+
+    // Calculate band height based on strike spacing
+    const strikes = zones.map(z => z.strike).sort((a, b) => a - b);
+    let avgSpacing = 1;
+    if (strikes.length > 1) {
+        let totalSpacing = 0;
+        for (let i = 1; i < strikes.length; i++) {
+            totalSpacing += strikes[i] - strikes[i-1];
+        }
+        avgSpacing = totalSpacing / (strikes.length - 1);
+    }
+    const bandHeight = Math.max(avgSpacing / pricePerPixel, 2);  // Min 2px height
+
+    // Draw horizontal bands for each zone
+    zones.forEach(zone => {
+        // Calculate Y position (inverted because canvas Y goes down)
+        const y = rect.height - ((zone.strike - minPrice) / pricePerPixel);
+
+        // Skip if outside visible range
+        if (y < -bandHeight || y > rect.height + bandHeight) return;
+
+        // Normalize GEX to 0-1 intensity
+        const intensity = Math.abs(zone.gex) / maxGex;
+        const alpha = 0.1 + (intensity * 0.5);  // 0.1 to 0.6 opacity
+
+        // Color: green for positive GEX (support), red for negative GEX (acceleration)
+        if (zone.gex > 0) {
+            heatmapCtx.fillStyle = `rgba(34, 197, 94, ${alpha})`;  // Green
+        } else {
+            heatmapCtx.fillStyle = `rgba(239, 68, 68, ${alpha})`;  // Red
+        }
+
+        heatmapCtx.fillRect(0, y - bandHeight/2, rect.width, bandHeight);
+    });
+
+    console.log(`[Heatmap] Rendered ${zones.length} zones`);
+}
+
+// Setup chart mode tabs (Basic/Heatmap)
+function setupChartModeTabs() {
+    document.querySelectorAll('.chart-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Update active state
+            document.querySelectorAll('.chart-mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // Set mode
+            chartMode = btn.dataset.mode;
+            console.log(`[Chart] Mode changed to: ${chartMode}`);
+
+            // Toggle canvas visibility
+            const canvas = document.getElementById('gexHeatmapCanvas');
+            if (canvas) {
+                canvas.classList.toggle('visible', chartMode === 'heatmap');
+            }
+
+            // Toggle chart background
+            if (priceChart) {
+                priceChart.applyOptions({
+                    layout: {
+                        background: {
+                            type: 'solid',
+                            color: chartMode === 'heatmap' ? 'transparent' : '#1a1a1a'
+                        }
+                    }
+                });
+            }
+
+            // Re-render heatmap if in heatmap mode
+            if (chartMode === 'heatmap' && gexZonesData.length > 0) {
+                setTimeout(() => {
+                    const range = getChartPriceRange();
+                    renderGexHeatmap(gexZonesData, range);
+                }, 50);
+            }
+        });
+    });
 }
 
 // Fetch candle data from API
@@ -3247,6 +3421,36 @@ async function loadAndRenderChart(symbol, resolution = '5') {
             window.chartInitialized = true;
         }
 
+        // Store zones for heatmap rendering
+        if (data.zones && data.zones.length > 0) {
+            gexZonesData = data.zones;
+            console.log(`[Heatmap] Stored ${gexZonesData.length} zones for heatmap`);
+        }
+
+        // Initialize heatmap canvas if not done
+        if (!heatmapCanvas) {
+            initHeatmapCanvas();
+        }
+
+        // Subscribe to chart range changes for heatmap re-rendering (only once)
+        if (!heatmapRangeSubscribed && priceChart) {
+            priceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+                if (chartMode === 'heatmap' && gexZonesData.length > 0) {
+                    const range = getChartPriceRange();
+                    renderGexHeatmap(gexZonesData, range);
+                }
+            });
+            heatmapRangeSubscribed = true;
+        }
+
+        // Render heatmap if in heatmap mode
+        if (chartMode === 'heatmap' && gexZonesData.length > 0) {
+            setTimeout(() => {
+                const range = getChartPriceRange();
+                renderGexHeatmap(gexZonesData, range);
+            }, 100);
+        }
+
     } catch (error) {
         console.error('Error loading chart:', error);
     }
@@ -5098,6 +5302,7 @@ async function init() {
     setupEventHandlers();
     setupStrikeClickHandlers();
     setupPlaybackHandlers();
+    setupChartModeTabs();  // Setup Basic/Heatmap chart mode tabs
 
     setConnectionStatus('', 'Connecting...');
 

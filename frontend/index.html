@@ -228,6 +228,11 @@
                         <h2>Price Chart</h2>
                         <span class="live-badge"><span class="pulse-dot"></span> LIVE</span>
                     </div>
+                    <!-- Chart Mode Tabs -->
+                    <div class="chart-mode-tabs">
+                        <button class="chart-mode-btn active" data-mode="basic">Basic</button>
+                        <button class="chart-mode-btn" data-mode="heatmap">Heatmap</button>
+                    </div>
                     <div class="chart-timeframe">
                         <button class="chart-tf-btn active" data-resolution="1">1m</button>
                         <button class="chart-tf-btn" data-resolution="5">5m</button>
@@ -237,6 +242,7 @@
                     </div>
                 </div>
                 <div class="price-chart-wrapper">
+                    <canvas id="gexHeatmapCanvas" class="heatmap-canvas"></canvas>
                     <div class="price-chart" id="priceChart">
                         <div class="chart-loading">Loading chart...</div>
                     </div>

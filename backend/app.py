@@ -1011,11 +1011,17 @@ async def get_candles(
                 "spot_price": spot_price
             }
 
+    # Include all zones for heatmap rendering
+    zones_data = []
+    if result and result.zones:
+        zones_data = [{"strike": z.strike, "gex": z.gex} for z in result.zones]
+
     return {
         "symbol": symbol,
         "resolution": resolution,
         "candles": candles,
-        "levels": levels
+        "levels": levels,
+        "zones": zones_data
     }
 
 
