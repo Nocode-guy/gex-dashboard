@@ -744,6 +744,26 @@ let heatmapCanvas = null;
 let heatmapCtx = null;
 let gexZonesData = [];  // Store zones for heatmap rendering
 let heatmapRangeSubscribed = false;  // Track if we've subscribed to range changes
+let heatmapPulseInterval = null;  // For pulsing liquidity lines animation
+
+// Start heatmap pulse animation
+function startHeatmapPulse() {
+    stopHeatmapPulse();
+    if (chartMode === 'heatmap' && gexZonesData.length > 0) {
+        heatmapPulseInterval = setInterval(() => {
+            const range = getChartPriceRange();
+            if (range) renderGexHeatmap(gexZonesData, range);
+        }, 100);  // 10fps for smooth pulsing
+    }
+}
+
+// Stop heatmap pulse animation
+function stopHeatmapPulse() {
+    if (heatmapPulseInterval) {
+        clearInterval(heatmapPulseInterval);
+        heatmapPulseInterval = null;
+    }
+}
 
 // Start chart auto-refresh (every 10 seconds)
 function startChartAutoRefresh() {
@@ -1007,28 +1027,34 @@ function renderGexHeatmap(zones, priceRange) {
         heatmapCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
         heatmapCtx.fillRect(0, y - bandHeight/2, rect.width, bandHeight);
 
-        // Draw liquidity zone markers for high-strength zones (OI + Volume proxy)
+        // Draw liquidity zone markers - BRIGHT RED lines
         const strength = zone.strength || intensity;
-        if (strength > 0.6) {
-            // Draw white/bright border for high liquidity zones
-            heatmapCtx.strokeStyle = `rgba(255, 255, 255, ${strength * 0.8})`;
-            heatmapCtx.lineWidth = strength > 0.85 ? 2 : 1;
+        if (strength > 0.03) {  // Show for zones with any notable strength
+            // Calculate pulse phase based on time (for animation)
+            const pulsePhase = (Date.now() / 1000) % 1;  // 0-1 cycle per second
+            const pulseMultiplier = 0.7 + (Math.sin(pulsePhase * Math.PI * 2 * (1 + strength * 3)) * 0.3);
+
+            // White with intensity based on strength
+            const lineAlpha = Math.min(0.5 + (strength * 4), 1) * pulseMultiplier;
+
+            // Line thickness: 1-6px based on strength
+            const lineWidth = Math.max(1, Math.min(strength * 60, 6));
+
+            heatmapCtx.strokeStyle = `rgba(255, 255, 255, ${lineAlpha})`;
+            heatmapCtx.lineWidth = lineWidth;
             heatmapCtx.beginPath();
             heatmapCtx.moveTo(0, y);
             heatmapCtx.lineTo(rect.width, y);
             heatmapCtx.stroke();
 
-            // Add diamond marker on the right for very high liquidity
-            if (strength > 0.8) {
-                const markerX = rect.width - 25;
-                heatmapCtx.fillStyle = `rgba(255, 255, 255, ${strength})`;
+            // Add glow effect for high liquidity
+            if (strength > 0.06) {
+                heatmapCtx.strokeStyle = `rgba(255, 255, 255, ${lineAlpha * 0.3})`;
+                heatmapCtx.lineWidth = lineWidth + 4;
                 heatmapCtx.beginPath();
-                heatmapCtx.moveTo(markerX, y - 5);
-                heatmapCtx.lineTo(markerX + 5, y);
-                heatmapCtx.lineTo(markerX, y + 5);
-                heatmapCtx.lineTo(markerX - 5, y);
-                heatmapCtx.closePath();
-                heatmapCtx.fill();
+                heatmapCtx.moveTo(0, y);
+                heatmapCtx.lineTo(rect.width, y);
+                heatmapCtx.stroke();
             }
         }
     });
@@ -1095,6 +1121,7 @@ function setupChartModeTabs() {
                         const range = getChartPriceRange();
                         console.log('[Heatmap] Price range:', range);
                         renderGexHeatmap(gexZonesData, range);
+                        startHeatmapPulse();  // Start pulsing animation
                     }, 100);
                 } else {
                     console.log('[Heatmap] No zones data - reload chart to fetch');
@@ -1103,6 +1130,8 @@ function setupChartModeTabs() {
                         loadAndRenderChart(currentSymbol, chartResolution);
                     }
                 }
+            } else {
+                stopHeatmapPulse();  // Stop pulsing when switching to basic
             }
         });
     });
@@ -3414,7 +3443,7 @@ async function loadAndRenderChart(symbol, resolution = '5') {
 
     // Fetch candle data
     try {
-        const response = await fetch(`${API_BASE}/candles/${symbol}?resolution=${resolution}&count=100`);
+        const response = await fetch(`${API_BASE}/candles/${symbol}?resolution=${resolution}&count=300`);
         if (!response.ok) {
             console.error('Failed to fetch candles');
             return;
@@ -3476,6 +3505,32 @@ async function loadAndRenderChart(symbol, resolution = '5') {
             });
         }
 
+        // Create SMA series if not exists
+        if (!sma9Series) {
+            sma9Series = priceChart.addLineSeries({
+                color: '#3b82f6',  // Blue
+                lineWidth: 1,
+                priceLineVisible: false,
+                lastValueVisible: false
+            });
+        }
+        if (!sma20Series) {
+            sma20Series = priceChart.addLineSeries({
+                color: '#ffffff',  // White
+                lineWidth: 1,
+                priceLineVisible: false,
+                lastValueVisible: false
+            });
+        }
+        if (!sma200Series) {
+            sma200Series = priceChart.addLineSeries({
+                color: '#fbbf24',  // Yellow
+                lineWidth: 1,
+                priceLineVisible: false,
+                lastValueVisible: false
+            });
+        }
+
         // Verify we have valid series
         if (!candleSeries) {
             console.error('[Chart] Failed to create candle series');
@@ -3493,6 +3548,27 @@ async function loadAndRenderChart(symbol, resolution = '5') {
 
         candleSeries.setData(candles);
         chartLoadedSymbol = symbol;  // Track which symbol is loaded
+
+        // Calculate and set SMA data (only in basic mode)
+        if (chartMode === 'basic') {
+            if (sma9Series && candles.length >= 9) {
+                sma9Series.setData(calculateSMA(candles, 9));
+                sma9Series.applyOptions({ visible: true });
+            }
+            if (sma20Series && candles.length >= 20) {
+                sma20Series.setData(calculateSMA(candles, 20));
+                sma20Series.applyOptions({ visible: true });
+            }
+            if (sma200Series && candles.length >= 200) {
+                sma200Series.setData(calculateSMA(candles, 200));
+                sma200Series.applyOptions({ visible: true });
+            }
+        } else {
+            // Hide SMAs in heatmap mode
+            if (sma9Series) sma9Series.applyOptions({ visible: false });
+            if (sma20Series) sma20Series.applyOptions({ visible: false });
+            if (sma200Series) sma200Series.applyOptions({ visible: false });
+        }
 
         // Remove old level lines
         chartLevelLines.forEach(line => {
