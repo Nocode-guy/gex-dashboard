@@ -7369,8 +7369,10 @@ body.trinity-mode .trinity-container {
     flex-shrink: 0;
 }
 
-.color-box.teal { background: rgba(20, 184, 166, 0.8); }
-.color-box.hotpink { background: rgba(255, 0, 255, 0.8); }
+.color-box.light-blue { background: rgba(0, 212, 255, 0.9); }
+.color-box.dark-blue { background: rgba(0, 85, 255, 0.9); }
+.color-box.yellow { background: rgba(255, 255, 0, 0.9); }
+.color-box.orange { background: rgba(255, 102, 0, 0.9); }
 
 .heatmap-brightness-note {
     font-size: 12px;

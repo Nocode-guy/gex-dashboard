@@ -959,17 +959,23 @@ function renderGexHeatmap(zones, priceRange) {
 
         // Normalize GEX to 0-1 intensity
         const intensity = Math.abs(zone.gex) / maxGex;
-        const alpha = 0.15 + (intensity * 0.55);  // 0.15 to 0.7 opacity
+        const alpha = 0.3 + (intensity * 0.6);  // 0.3 to 0.9 opacity - pops on black
 
-        // Color scheme: Teal for positive GEX, Magenta for negative GEX
-        // Brighter = stronger GEX
+        // Color scheme with intensity gradient:
+        // Positive GEX (Support): Light Blue (weak) → Dark Blue (strong)
+        // Negative GEX (Acceleration): Yellow (weak) → Orange (strong)
         let r, g, b;
         if (zone.gex > 0) {
-            // Positive GEX (Support/Magnet): Teal #14b8a6
-            r = 20; g = 184; b = 166;
+            // Support: Light Blue #00d4ff → Dark Blue #0055ff
+            // Interpolate based on intensity
+            r = 0;
+            g = Math.round(212 - (intensity * 127));  // 212 → 85
+            b = 255;
         } else {
-            // Negative GEX (Acceleration): Hot Pink #ff00ff
-            r = 255; g = 0; b = 255;
+            // Acceleration: Yellow #ffff00 → Orange #ff6600
+            r = 255;
+            g = Math.round(255 - (intensity * 153));  // 255 → 102
+            b = 0;
         }
 
         heatmapCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
