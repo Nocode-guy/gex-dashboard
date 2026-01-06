@@ -7370,7 +7370,7 @@ body.trinity-mode .trinity-container {
 }
 
 .color-box.teal { background: rgba(20, 184, 166, 0.8); }
-.color-box.magenta { background: rgba(236, 72, 153, 0.8); }
+.color-box.hotpink { background: rgba(255, 0, 255, 0.8); }
 
 .heatmap-brightness-note {
     font-size: 12px;

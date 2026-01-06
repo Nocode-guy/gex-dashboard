@@ -968,8 +968,8 @@ function renderGexHeatmap(zones, priceRange) {
             // Positive GEX (Support/Magnet): Teal #14b8a6
             r = 20; g = 184; b = 166;
         } else {
-            // Negative GEX (Acceleration): Magenta #ec4899
-            r = 236; g = 72; b = 153;
+            // Negative GEX (Acceleration): Hot Pink #ff00ff
+            r = 255; g = 0; b = 255;
         }
 
         heatmapCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
