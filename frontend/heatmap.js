@@ -961,27 +961,15 @@ function renderGexHeatmap(zones, priceRange) {
         const intensity = Math.abs(zone.gex) / maxGex;
         const alpha = 0.15 + (intensity * 0.55);  // 0.15 to 0.7 opacity
 
-        // Color scheme: Green for positive GEX, Purple for negative GEX
-        // Strong = deep color, Weak = light color
+        // Color scheme: Green for positive GEX, Red for negative GEX
+        // Brighter = stronger GEX
         let r, g, b;
         if (zone.gex > 0) {
-            // Positive GEX (Support/Magnet): Light Green (weak) → Deep Green (strong)
-            if (intensity < 0.5) {
-                // Light Green for weak positive: #7ee680 = rgb(126, 230, 128)
-                r = 126; g = 230; b = 128;
-            } else {
-                // Deep Green for strong positive: #1c961e = rgb(28, 150, 30)
-                r = 28; g = 150; b = 30;
-            }
+            // Positive GEX (Support/Magnet): Green
+            r = 34; g = 197; b = 94;
         } else {
-            // Negative GEX (Acceleration): Light Purple (weak) → Deep Purple (strong)
-            if (intensity < 0.5) {
-                // Light Purple for weak negative: #db89ff = rgb(219, 137, 255)
-                r = 219; g = 137; b = 255;
-            } else {
-                // Deep Purple for strong negative: #7c00b2 = rgb(124, 0, 178)
-                r = 124; g = 0; b = 178;
-            }
+            // Negative GEX (Acceleration): Red
+            r = 239; g = 68; b = 68;
         }
 
         heatmapCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
