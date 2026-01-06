@@ -962,14 +962,14 @@ function renderGexHeatmap(zones, priceRange) {
         const alpha = 0.75 + (intensity * 0.25);  // 0.75 to 1.0 opacity - max visibility
 
         // User-specified colors:
-        // Support: Light Blue #90D5FF → Dark Blue #0000CD
+        // Support: Light Blue #90D5FF → Dark Blue #000080
         // Acceleration: Yellow #FFCE1B → Orange #FF7518
         let r, g, b;
         if (zone.gex > 0) {
-            // Support: Light Blue (144,213,255) → Dark Blue (0,0,205)
+            // Support: Light Blue (144,213,255) → Dark Blue (0,0,128)
             r = Math.round(144 - (intensity * 144));  // 144 → 0
             g = Math.round(213 - (intensity * 213));  // 213 → 0
-            b = Math.round(255 - (intensity * 50));   // 255 → 205
+            b = Math.round(255 - (intensity * 127));  // 255 → 128
         } else {
             // Acceleration: Yellow (255,206,27) → Orange (255,117,24)
             r = 255;
