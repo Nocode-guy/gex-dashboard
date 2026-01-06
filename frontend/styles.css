@@ -7369,8 +7369,8 @@ body.trinity-mode .trinity-container {
     flex-shrink: 0;
 }
 
-.color-box.deep-blue { background: rgba(37, 99, 235, 0.8); }
-.color-box.light-blue { background: rgba(96, 165, 250, 0.8); }
+.color-box.deep-green { background: rgba(28, 150, 30, 0.8); }
+.color-box.light-green { background: rgba(126, 230, 128, 0.8); }
 .color-box.light-purple { background: rgba(167, 139, 250, 0.8); }
 .color-box.deep-purple { background: rgba(126, 34, 206, 0.8); }
 
