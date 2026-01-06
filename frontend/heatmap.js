@@ -998,7 +998,7 @@ function setupChartModeTabs() {
                 console.log(`[Heatmap] Canvas visible: ${chartMode === 'heatmap'}`);
             }
 
-            // Toggle chart background
+            // Toggle chart background AND wrapper background
             if (priceChart) {
                 priceChart.applyOptions({
                     layout: {
@@ -1008,6 +1008,16 @@ function setupChartModeTabs() {
                         }
                     }
                 });
+            }
+
+            // Also make the wrapper transparent so canvas shows through
+            const wrapper = document.querySelector('.price-chart-wrapper');
+            if (wrapper) {
+                wrapper.style.background = chartMode === 'heatmap' ? 'transparent' : '';
+            }
+            const priceChartDiv = document.getElementById('priceChart');
+            if (priceChartDiv) {
+                priceChartDiv.style.background = chartMode === 'heatmap' ? 'transparent' : '';
             }
 
             // Re-render heatmap if in heatmap mode
