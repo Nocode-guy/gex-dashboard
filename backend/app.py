@@ -1011,10 +1011,10 @@ async def get_candles(
                 "spot_price": spot_price
             }
 
-    # Include all zones for heatmap rendering
+    # Include all zones for heatmap rendering (with strength for liquidity visualization)
     zones_data = []
     if result and result.zones:
-        zones_data = [{"strike": z.strike, "gex": z.gex} for z in result.zones]
+        zones_data = [{"strike": z.strike, "gex": z.gex, "strength": z.strength} for z in result.zones]
 
     return {
         "symbol": symbol,

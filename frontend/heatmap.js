@@ -730,6 +730,9 @@ function stopWaveAutoRefresh() {
 
 let priceChart = null;
 let candleSeries = null;
+let sma9Series = null;
+let sma20Series = null;
+let sma200Series = null;
 let chartLevelLines = [];  // For GEX level lines
 let chartResolution = '5';
 let chartRefreshInterval = null;
@@ -812,6 +815,29 @@ function initPriceChart() {
             borderDownColor: '#ef4444',
             wickUpColor: '#22c55e',
             wickDownColor: '#ef4444'
+        });
+
+        // Create SMA line series
+        sma9Series = priceChart.addLineSeries({
+            color: '#3b82f6',  // Blue
+            lineWidth: 1,
+            title: 'SMA 9',
+            priceLineVisible: false,
+            lastValueVisible: false
+        });
+        sma20Series = priceChart.addLineSeries({
+            color: '#ffffff',  // White
+            lineWidth: 1,
+            title: 'SMA 20',
+            priceLineVisible: false,
+            lastValueVisible: false
+        });
+        sma200Series = priceChart.addLineSeries({
+            color: '#fbbf24',  // Yellow
+            lineWidth: 1,
+            title: 'SMA 200',
+            priceLineVisible: false,
+            lastValueVisible: false
         });
 
         // Handle resize
@@ -980,6 +1006,31 @@ function renderGexHeatmap(zones, priceRange) {
 
         heatmapCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
         heatmapCtx.fillRect(0, y - bandHeight/2, rect.width, bandHeight);
+
+        // Draw liquidity zone markers for high-strength zones (OI + Volume proxy)
+        const strength = zone.strength || intensity;
+        if (strength > 0.6) {
+            // Draw white/bright border for high liquidity zones
+            heatmapCtx.strokeStyle = `rgba(255, 255, 255, ${strength * 0.8})`;
+            heatmapCtx.lineWidth = strength > 0.85 ? 2 : 1;
+            heatmapCtx.beginPath();
+            heatmapCtx.moveTo(0, y);
+            heatmapCtx.lineTo(rect.width, y);
+            heatmapCtx.stroke();
+
+            // Add diamond marker on the right for very high liquidity
+            if (strength > 0.8) {
+                const markerX = rect.width - 25;
+                heatmapCtx.fillStyle = `rgba(255, 255, 255, ${strength})`;
+                heatmapCtx.beginPath();
+                heatmapCtx.moveTo(markerX, y - 5);
+                heatmapCtx.lineTo(markerX + 5, y);
+                heatmapCtx.lineTo(markerX, y + 5);
+                heatmapCtx.lineTo(markerX - 5, y);
+                heatmapCtx.closePath();
+                heatmapCtx.fill();
+            }
+        }
     });
 
     console.log(`[Heatmap] Rendered ${zones.length} zones`);
@@ -1030,6 +1081,11 @@ function setupChartModeTabs() {
             if (priceChartDiv) {
                 priceChartDiv.style.background = chartMode === 'heatmap' ? 'transparent' : '';
             }
+
+            // Toggle SMA visibility based on mode
+            if (sma9Series) sma9Series.applyOptions({ visible: chartMode === 'basic' });
+            if (sma20Series) sma20Series.applyOptions({ visible: chartMode === 'basic' });
+            if (sma200Series) sma200Series.applyOptions({ visible: chartMode === 'basic' });
 
             // Re-render heatmap if in heatmap mode
             if (chartMode === 'heatmap') {
@@ -1106,6 +1162,22 @@ async function fetchCandleData(symbol, resolution = '5', count = 200) {
     }
 }
 
+// Calculate SMA from candle data
+function calculateSMA(candles, period) {
+    const result = [];
+    for (let i = period - 1; i < candles.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < period; j++) {
+            sum += candles[i - j].close;
+        }
+        result.push({
+            time: candles[i].time,
+            value: sum / period
+        });
+    }
+    return result;
+}
+
 // Update price chart with candle data
 function updatePriceChart(data) {
     if (!priceChart || !candleSeries || !data) return;
@@ -1123,6 +1195,20 @@ function updatePriceChart(data) {
     }));
 
     candleSeries.setData(chartData);
+
+    // Calculate and set SMA data (only in basic mode)
+    if (chartMode === 'basic') {
+        if (sma9Series && chartData.length >= 9) {
+            sma9Series.setData(calculateSMA(chartData, 9));
+        }
+        if (sma20Series && chartData.length >= 20) {
+            sma20Series.setData(calculateSMA(chartData, 20));
+        }
+        if (sma200Series && chartData.length >= 200) {
+            sma200Series.setData(calculateSMA(chartData, 200));
+        }
+    }
+
     priceChart.timeScale().fitContent();
 }
 
