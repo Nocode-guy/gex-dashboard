@@ -3285,8 +3285,8 @@ function renderPutCallWalls(data) {
 
     if (maxGex === 0) maxGex = 1;
 
-    // Render bars with percentages
-    container.innerHTML = walls.walls.map(wall => {
+    // Render bars with percentages (reversed so higher strikes at top)
+    container.innerHTML = walls.walls.slice().reverse().map(wall => {
         const callWidth = (Math.abs(wall.call_gex) / maxGex) * 45;
         const putWidth = (Math.abs(wall.put_gex) / maxGex) * 45;
         const isCurrentPrice = Math.abs(wall.strike - spotPrice) < (spotPrice * 0.002);
