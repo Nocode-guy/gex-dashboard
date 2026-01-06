@@ -959,7 +959,7 @@ function renderGexHeatmap(zones, priceRange) {
 
         // Normalize GEX to 0-1 intensity
         const intensity = Math.abs(zone.gex) / maxGex;
-        const alpha = 0.6 + (intensity * 0.35);  // 0.6 to 0.95 opacity - high visibility
+        const alpha = 0.75 + (intensity * 0.25);  // 0.75 to 1.0 opacity - max visibility
 
         // User-specified colors:
         // Support: Light Blue #90D5FF → Dark Blue #0000CD
