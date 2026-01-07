@@ -1612,10 +1612,11 @@ async def get_realtime_flow(symbol: str):
         spot_price = cached.spot_price
         polygon_volume = cached.volume_by_strike  # Dict[float, {call_volume, put_volume}]
 
-        # Major ETFs/stocks use $1 strike intervals
-        LIQUID_SYMBOLS_1_DOLLAR = {'SPY', 'QQQ', 'IWM', 'DIA', 'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'META', 'NVDA', 'TSLA', 'AMD', 'SPX', 'NDX'}
+        # Only major ETFs have true $1 strike intervals across all expirations
+        # Stocks like TSLA have $5 intervals in aggregated options chains
+        ETFS_1_DOLLAR = {'SPY', 'QQQ', 'IWM', 'DIA'}
 
-        if symbol in LIQUID_SYMBOLS_1_DOLLAR:
+        if symbol in ETFS_1_DOLLAR:
             strike_interval = 1
         else:
             # Detect interval from Polygon volume data
