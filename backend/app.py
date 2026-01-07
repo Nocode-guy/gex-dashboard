@@ -1594,8 +1594,11 @@ async def get_realtime_flow(symbol: str):
     """
     Get REAL-TIME options flow data from Unusual Whales.
     Returns intraday volume by strike with live updates.
+    Filters to 15 strikes above and 15 below spot price.
     """
     symbol = symbol.upper()
+    STRIKES_ABOVE = 15
+    STRIKES_BELOW = 15
 
     if not ORDERFLOW_AVAILABLE:
         raise HTTPException(
@@ -1610,19 +1613,53 @@ async def get_realtime_flow(symbol: str):
         # Get real-time intraday flow by strike
         flow_by_strike = await client.get_flow_by_strike_intraday(symbol)
 
-        # Get spot price from cache
+        # Get spot price from Tradier (most reliable real-time source)
         spot_price = 0
-        cached = cache.get(symbol)
-        if cached:
-            spot_price = cached.spot_price
+        try:
+            from tradier_client import get_tradier_client
+            tradier = get_tradier_client()
+            quote = await tradier.get_quote(symbol)
+            if quote:
+                spot_price = quote.get("last", 0) or quote.get("close", 0)
+        except Exception as e:
+            print(f"[Flow Realtime] Tradier quote failed: {e}")
 
-        # Convert to strike_pressure format for frontend compatibility
+        # Fallback to cache if Tradier failed
+        if spot_price == 0:
+            cached = cache.get(symbol)
+            if cached:
+                spot_price = cached.spot_price
+
+        # Determine strike interval based on price
+        if spot_price > 1000:
+            strike_interval = 10
+        elif spot_price > 200:
+            strike_interval = 5
+        elif spot_price > 50:
+            strike_interval = 2.5
+        else:
+            strike_interval = 1
+
+        # Round spot to nearest strike
+        rounded_spot = round(spot_price / strike_interval) * strike_interval
+
+        # Calculate strike range (15 above, 15 below)
+        min_strike = rounded_spot - (STRIKES_BELOW * strike_interval)
+        max_strike = rounded_spot + (STRIKES_ABOVE * strike_interval)
+
+        # Convert to strike_pressure format, filtering to range
         strike_pressure = {}
         total_call = 0
         total_put = 0
 
-        for strike, data in flow_by_strike.items():
-            strike_pressure[strike] = {
+        for strike_str, data in flow_by_strike.items():
+            strike = float(strike_str)
+
+            # Filter to 15 above and 15 below
+            if strike < min_strike or strike > max_strike:
+                continue
+
+            strike_pressure[strike_str] = {
                 "call_premium": data.get("call_premium", 0),
                 "put_premium": data.get("put_premium", 0),
                 "call_volume": data.get("call_volume", 0),
