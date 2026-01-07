@@ -1688,6 +1688,111 @@ async def get_realtime_flow(symbol: str):
         raise HTTPException(status_code=500, detail=f"Error fetching volume data: {str(e)}")
 
 
+@app.get("/flow/{symbol}/volume-uw")
+async def get_volume_uw(symbol: str):
+    """
+    REAL-TIME intraday flow by strike from Unusual Whales.
+    This is TRUE real-time data - updates as orders execute.
+    Shows actual intraday premium/volume, not daily cumulative.
+    """
+    symbol = symbol.upper()
+    STRIKES_ABOVE = 15
+    STRIKES_BELOW = 15
+
+    if not ORDERFLOW_AVAILABLE:
+        raise HTTPException(status_code=503, detail="UW API not available")
+
+    try:
+        from orderflow_client import get_flow_client
+        client = get_flow_client()
+
+        # Get real-time intraday flow from UW
+        uw_data = await client.get_flow_by_strike_intraday(symbol)
+
+        if not uw_data:
+            raise HTTPException(status_code=404, detail=f"No UW flow data for {symbol}")
+
+        # Get spot price
+        spot_price = 0
+        cached = cache.get(symbol)
+        if cached:
+            spot_price = cached.spot_price
+        else:
+            try:
+                from tradier_client import get_tradier_client
+                tradier = get_tradier_client()
+                quote = await tradier.get_quote(symbol)
+                if quote:
+                    spot_price = quote.get("last", 0) or quote.get("close", 0)
+            except:
+                pass
+
+        # Detect strike interval from UW data
+        uw_strikes = sorted(uw_data.keys())
+        if len(uw_strikes) >= 3:
+            intervals = [uw_strikes[i+1] - uw_strikes[i] for i in range(len(uw_strikes)-1)]
+            small_intervals = [i for i in intervals if 0.5 <= i <= 10]
+            if small_intervals:
+                from collections import Counter
+                interval_counts = Counter([round(i, 1) for i in small_intervals])
+                strike_interval = interval_counts.most_common(1)[0][0]
+            else:
+                strike_interval = 5
+        else:
+            strike_interval = 5
+
+        # Round spot to nearest strike
+        if spot_price > 0:
+            rounded_spot = round(spot_price / strike_interval) * strike_interval
+        else:
+            # Use median of UW strikes if no spot price
+            rounded_spot = uw_strikes[len(uw_strikes)//2] if uw_strikes else 0
+
+        # Filter to ±15 strikes around spot
+        min_strike = rounded_spot - (STRIKES_BELOW * strike_interval)
+        max_strike = rounded_spot + (STRIKES_ABOVE * strike_interval)
+
+        strike_pressure = {}
+        total_call = 0
+        total_put = 0
+
+        for strike, data in uw_data.items():
+            if min_strike <= strike <= max_strike:
+                strike_key = str(int(strike)) if strike == int(strike) else str(strike)
+                strike_pressure[strike_key] = {
+                    "call_premium": data.get("call_premium", 0),
+                    "put_premium": data.get("put_premium", 0),
+                    "call_volume": data.get("call_volume", 0),
+                    "put_volume": data.get("put_volume", 0),
+                    "call_volume_ask": data.get("call_volume_ask", 0),
+                    "call_volume_bid": data.get("call_volume_bid", 0),
+                    "put_volume_ask": data.get("put_volume_ask", 0),
+                    "put_volume_bid": data.get("put_volume_bid", 0),
+                    "net_premium": data.get("net_premium", 0),
+                }
+                total_call += data.get("call_premium", 0)
+                total_put += data.get("put_premium", 0)
+
+        print(f"[UW Volume] {symbol}: {len(strike_pressure)} strikes, spot={spot_price:.2f}")
+
+        return {
+            "symbol": symbol,
+            "spot_price": spot_price,
+            "timestamp": datetime.now().isoformat(),
+            "data_source": "unusual_whales_intraday",
+            "strike_pressure": strike_pressure,
+            "total_call_premium": total_call,
+            "total_put_premium": total_put,
+            "net_premium": total_call - total_put,
+            "sentiment": "bullish" if total_call > total_put else "bearish",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching UW volume: {str(e)}")
+
+
 @app.get("/flow/{symbol}/volume-live")
 async def get_volume_live(symbol: str):
     """

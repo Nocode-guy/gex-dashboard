@@ -2012,8 +2012,16 @@ async function fetchAndRenderVolumeByStrike(symbol, showLoading = true) {
     }
 
     try {
-        // Use LIVE endpoint for fast Polygon volume updates (every 5 seconds)
-        const data = await fetchAPI(`/flow/${symbol}/volume-live`);
+        // Try UW first for TRUE real-time intraday flow
+        let data;
+        try {
+            data = await fetchAPI(`/flow/${symbol}/volume-uw`);
+            console.log(`[Volume] Using Unusual Whales real-time intraday data`);
+        } catch (uwError) {
+            // Fallback to Polygon if UW fails
+            console.log(`[Volume] UW failed, falling back to Polygon: ${uwError.message}`);
+            data = await fetchAPI(`/flow/${symbol}/volume-live`);
+        }
 
         // Store data globally for re-rendering on chart scroll
         volumeStrikeData = data;
@@ -2034,19 +2042,8 @@ async function fetchAndRenderVolumeByStrike(symbol, showLoading = true) {
             console.log(`[Volume] Data source: ${data.data_source}`);
         }
     } catch (error) {
-        console.error('[Volume] Failed to fetch real-time volume data:', error);
-        // Fallback to regular flow endpoint
-        try {
-            const spotPrice = currentData?.spot_price || 100;
-            const strikeInterval = spotPrice > 1000 ? 5 : 1;
-            const strikeRange = 50 * strikeInterval;
-            const data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
-            volumeStrikeData = data;
-            subscribeVolumeToChartChanges();
-            renderVolumeByStrikeAligned();
-        } catch (fallbackError) {
-            container.innerHTML = '<div class="volume-loading">Failed to load volume data</div>';
-        }
+        console.error('[Volume] Failed to fetch volume data:', error);
+        container.innerHTML = '<div class="volume-loading">Failed to load volume data</div>';
     }
 }
 
