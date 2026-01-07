@@ -1635,19 +1635,28 @@ async def get_realtime_flow(symbol: str):
         for strike_str, data in flow_by_strike.items():
             uw_data[float(strike_str)] = data
 
-        # Detect actual strike interval from UW data
-        uw_strikes = sorted(uw_data.keys())
-        if len(uw_strikes) >= 2:
-            # Find most common interval between consecutive strikes
-            intervals = [uw_strikes[i+1] - uw_strikes[i] for i in range(len(uw_strikes)-1)]
-            # Use the minimum interval (most granular)
-            strike_interval = min(intervals) if intervals else 1
-            # Sanity check - interval should be reasonable (0.5 to 10)
-            if strike_interval < 0.5 or strike_interval > 10:
-                strike_interval = 1
-        else:
-            # Fallback: use $1 for most liquid symbols
+        # Major ETFs/stocks use $1 strike intervals
+        LIQUID_SYMBOLS_1_DOLLAR = {'SPY', 'QQQ', 'IWM', 'DIA', 'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'META', 'NVDA', 'TSLA', 'AMD', 'SPX', 'NDX'}
+
+        if symbol in LIQUID_SYMBOLS_1_DOLLAR:
             strike_interval = 1
+        else:
+            # For other symbols, try to detect from UW data
+            uw_strikes = sorted(uw_data.keys())
+            if len(uw_strikes) >= 3:
+                # Calculate intervals and find the most common small one
+                intervals = [uw_strikes[i+1] - uw_strikes[i] for i in range(len(uw_strikes)-1)]
+                # Filter out large gaps (outliers), keep intervals <= 10
+                small_intervals = [i for i in intervals if 0.5 <= i <= 10]
+                if small_intervals:
+                    # Use the most common interval
+                    from collections import Counter
+                    interval_counts = Counter([round(i, 1) for i in small_intervals])
+                    strike_interval = interval_counts.most_common(1)[0][0]
+                else:
+                    strike_interval = 1
+            else:
+                strike_interval = 1
 
         # Round spot to nearest strike
         rounded_spot = round(spot_price / strike_interval) * strike_interval
