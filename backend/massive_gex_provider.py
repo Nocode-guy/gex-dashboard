@@ -94,42 +94,7 @@ class MassiveGEXProvider:
                 print(f"[Massive] Error estimating index spot for {symbol}: {e}")
             return 0  # Index symbols have no other fallback
 
-        # STOCK PRIMARY: Try stock snapshot endpoint (real-time with paid plan)
-        try:
-            url = f"{self.base_url}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-            response = await client.get(url, params={"apiKey": self.api_key})
-            response.raise_for_status()
-            data = response.json()
-
-            ticker = data.get("ticker", {})
-            price = (
-                ticker.get("lastTrade", {}).get("p", 0) or
-                ticker.get("min", {}).get("c", 0) or
-                ticker.get("prevDay", {}).get("c", 0) or
-                0
-            )
-
-            if price > 0:
-                self._spot_cache[symbol] = (price, datetime.now())
-                print(f"[Massive] Got spot price for {symbol}: ${price:.2f} (stock snapshot)")
-                return price
-
-        except Exception as e:
-            print(f"[Massive] Stock snapshot failed for {symbol}: {e}")
-
-        # STOCK FALLBACK 1: Try yfinance for real-time price (free)
-        try:
-            import yfinance as yf
-            ticker = yf.Ticker(symbol)
-            price = ticker.fast_info.get("lastPrice", 0) or 0
-            if price > 0:
-                self._spot_cache[symbol] = (price, datetime.now())
-                print(f"[Massive] Got spot price for {symbol}: ${price:.2f} (yfinance)")
-                return price
-        except Exception as e:
-            print(f"[Massive] yfinance failed for {symbol}: {e}")
-
-        # STOCK FALLBACK 2: Get price from options snapshot underlying_asset
+        # Get price from options snapshot underlying_asset (real-time with Options Starter plan)
         try:
             url = f"{self.base_url}/v3/snapshot/options/{symbol}"
             response = await client.get(url, params={"apiKey": self.api_key, "limit": 1})
@@ -140,7 +105,7 @@ class MassiveGEXProvider:
                 price = data["results"][0].get("underlying_asset", {}).get("price", 0)
                 if price > 0:
                     self._spot_cache[symbol] = (price, datetime.now())
-                    print(f"[Massive] Got spot price for {symbol}: ${price:.2f} (options snapshot)")
+                    print(f"[Massive] Got spot price for {symbol}: ${price:.2f}")
                     return price
 
         except Exception as e:
