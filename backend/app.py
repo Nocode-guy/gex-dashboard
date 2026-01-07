@@ -1589,6 +1589,134 @@ async def get_market_tide():
         raise HTTPException(status_code=500, detail=f"Error fetching market tide: {str(e)}")
 
 
+@app.get("/flow/{symbol}/realtime")
+async def get_realtime_flow(symbol: str):
+    """
+    Get REAL-TIME options flow data from Unusual Whales.
+    Returns intraday volume by strike with live updates.
+    """
+    symbol = symbol.upper()
+
+    if not ORDERFLOW_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Real-time flow not available. Unusual Whales API required."
+        )
+
+    from orderflow_client import get_flow_client
+    client = get_flow_client()
+
+    try:
+        # Get real-time intraday flow by strike
+        flow_by_strike = await client.get_flow_by_strike_intraday(symbol)
+
+        # Get spot price from cache
+        spot_price = 0
+        cached = cache.get(symbol)
+        if cached:
+            spot_price = cached.spot_price
+
+        # Convert to strike_pressure format for frontend compatibility
+        strike_pressure = {}
+        total_call = 0
+        total_put = 0
+
+        for strike, data in flow_by_strike.items():
+            strike_pressure[strike] = {
+                "call_premium": data.get("call_premium", 0),
+                "put_premium": data.get("put_premium", 0),
+                "call_volume": data.get("call_volume", 0),
+                "put_volume": data.get("put_volume", 0),
+                "call_volume_ask": data.get("call_volume_ask", 0),
+                "call_volume_bid": data.get("call_volume_bid", 0),
+                "put_volume_ask": data.get("put_volume_ask", 0),
+                "put_volume_bid": data.get("put_volume_bid", 0),
+                "net_premium": data.get("net_premium", 0),
+            }
+            total_call += data.get("call_premium", 0)
+            total_put += data.get("put_premium", 0)
+
+        net_premium = total_call - total_put
+        sentiment = "bullish" if net_premium > 0 else "bearish" if net_premium < 0 else "neutral"
+
+        return {
+            "symbol": symbol,
+            "spot_price": spot_price,
+            "timestamp": datetime.now().isoformat(),
+            "data_source": "unusual_whales_realtime",
+            "strike_pressure": strike_pressure,
+            "total_call_premium": total_call,
+            "total_put_premium": total_put,
+            "net_premium": net_premium,
+            "sentiment": sentiment,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching real-time flow: {str(e)}")
+
+
+@app.get("/flow/{symbol}/wave-realtime")
+async def get_wave_realtime(symbol: str):
+    """
+    Get REAL-TIME WAVE indicator data from Unusual Whales.
+    Returns net premium ticks for building the WAVE chart.
+    """
+    symbol = symbol.upper()
+
+    if not ORDERFLOW_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Real-time WAVE not available. Unusual Whales API required."
+        )
+
+    from orderflow_client import get_flow_client
+    client = get_flow_client()
+
+    try:
+        # Get net premium ticks for WAVE
+        ticks = await client.get_net_premium_ticks(symbol)
+
+        # Calculate cumulative values for WAVE chart
+        cumulative_call = 0
+        cumulative_put = 0
+        wave_data = []
+
+        for tick in ticks:
+            cumulative_call += tick.get("call_premium", 0)
+            cumulative_put += tick.get("put_premium", 0)
+
+            wave_data.append({
+                "timestamp": tick.get("timestamp"),
+                "call_premium": tick.get("call_premium", 0),
+                "put_premium": tick.get("put_premium", 0),
+                "net_premium": tick.get("net_premium", 0),
+                "cumulative_call": cumulative_call,
+                "cumulative_put": cumulative_put,
+                "cumulative_net": cumulative_call - cumulative_put,
+                "net_delta": tick.get("net_delta", 0),
+            })
+
+        # Current WAVE values
+        current_wave = {
+            "cumulative_call": cumulative_call,
+            "cumulative_put": cumulative_put,
+            "cumulative_net": cumulative_call - cumulative_put,
+            "sentiment": "bullish" if cumulative_call > cumulative_put else "bearish",
+        }
+
+        return {
+            "symbol": symbol,
+            "timestamp": datetime.now().isoformat(),
+            "data_source": "unusual_whales_realtime",
+            "current_wave": current_wave,
+            "wave_history": wave_data,
+            "tick_count": len(wave_data),
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching WAVE data: {str(e)}")
+
+
 # =============================================================================
 # HISTORICAL VALIDATION ENDPOINTS
 # =============================================================================

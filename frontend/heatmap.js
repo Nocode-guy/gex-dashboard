@@ -702,16 +702,16 @@ let waveNetSeries = null;
 let waveTimeframe = 60; // Default 1 hour
 let waveRefreshInterval = null; // Auto-refresh timer
 
-// Start WAVE auto-refresh (every 10 seconds)
+// Start WAVE auto-refresh (every 5 seconds for real-time)
 function startWaveAutoRefresh() {
     stopWaveAutoRefresh(); // Clear any existing interval
     if (currentSymbol && currentView === 'flow') {
         waveRefreshInterval = setInterval(() => {
             fetchWaveData(currentSymbol, waveTimeframe);
-            fetchFlowData(currentSymbol); // Also refresh flow stats
+            // Flow data has its own refresh interval now
             fetchLeaderboard(); // Also refresh leaderboard
-        }, 10000); // 10 seconds
-        console.log('[WAVE] Auto-refresh started');
+        }, 5000); // 5 seconds for real-time updates
+        console.log('[WAVE] Real-time auto-refresh started (5s interval)');
     }
 }
 
@@ -739,12 +739,19 @@ let chartRefreshInterval = null;
 let chartLoadedSymbol = null;  // Track which symbol chart is showing
 
 // Heatmap mode variables
-let chartMode = 'basic';  // 'basic' or 'heatmap'
+let chartMode = 'basic';  // 'basic' or 'heatmap' (chart background style)
+let volumeEnabled = false;  // Volume panel toggle (can be combined with any mode)
 let heatmapCanvas = null;
 let heatmapCtx = null;
 let gexZonesData = [];  // Store zones for heatmap rendering
 let heatmapRangeSubscribed = false;  // Track if we've subscribed to range changes
 let heatmapPulseInterval = null;  // For pulsing liquidity lines animation
+
+// Volume mode variables
+let volumeStrikeData = null;  // Store volume data for re-rendering on chart scroll
+let volumeRangeSubscribed = false;  // Track if we've subscribed to range changes for volume
+let volumeResizeObserver = null;  // Resize observer for volume panel sync
+let volumeSyncInterval = null;  // Interval for syncing with chart price scale
 
 // Start heatmap pulse animation
 function startHeatmapPulse() {
@@ -803,6 +810,7 @@ function initPriceChart() {
         priceChart = LightweightCharts.createChart(container, {
             width: container.clientWidth,
             height: container.clientHeight || 500,
+            autoSize: true,  // Automatically resize with container
             layout: {
                 background: { type: 'solid', color: 'transparent' },
                 textColor: '#a0a0a0'
@@ -1062,12 +1070,13 @@ function renderGexHeatmap(zones, priceRange) {
     console.log(`[Heatmap] Rendered ${zones.length} zones`);
 }
 
-// Setup chart mode tabs (Basic/Heatmap)
+// Setup chart mode tabs (Basic/Heatmap + Volume toggle)
 function setupChartModeTabs() {
-    document.querySelectorAll('.chart-mode-btn').forEach(btn => {
+    // Handle Basic/Heatmap mode buttons (mutually exclusive)
+    document.querySelectorAll('.chart-mode-btn:not(.volume-toggle)').forEach(btn => {
         btn.addEventListener('click', () => {
-            // Update active state
-            document.querySelectorAll('.chart-mode-btn').forEach(b => b.classList.remove('active'));
+            // Update active state for mode buttons only
+            document.querySelectorAll('.chart-mode-btn:not(.volume-toggle)').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
 
             // Set mode
@@ -1083,7 +1092,6 @@ function setupChartModeTabs() {
             const canvas = document.getElementById('gexHeatmapCanvas');
             if (canvas) {
                 canvas.classList.toggle('visible', chartMode === 'heatmap');
-                console.log(`[Heatmap] Canvas visible: ${chartMode === 'heatmap'}`);
             }
 
             // Toggle chart background AND wrapper background
@@ -1108,10 +1116,11 @@ function setupChartModeTabs() {
                 priceChartDiv.style.background = chartMode === 'heatmap' ? 'transparent' : '';
             }
 
-            // Toggle SMA visibility based on mode
-            if (sma9Series) sma9Series.applyOptions({ visible: chartMode === 'basic' });
-            if (sma20Series) sma20Series.applyOptions({ visible: chartMode === 'basic' });
-            if (sma200Series) sma200Series.applyOptions({ visible: chartMode === 'basic' });
+            // Toggle SMA visibility (show in basic mode only)
+            const showSMA = chartMode === 'basic';
+            if (sma9Series) sma9Series.applyOptions({ visible: showSMA });
+            if (sma20Series) sma20Series.applyOptions({ visible: showSMA });
+            if (sma200Series) sma200Series.applyOptions({ visible: showSMA });
 
             // Re-render heatmap if in heatmap mode
             if (chartMode === 'heatmap') {
@@ -1119,22 +1128,109 @@ function setupChartModeTabs() {
                 if (gexZonesData.length > 0) {
                     setTimeout(() => {
                         const range = getChartPriceRange();
-                        console.log('[Heatmap] Price range:', range);
                         renderGexHeatmap(gexZonesData, range);
-                        startHeatmapPulse();  // Start pulsing animation
+                        startHeatmapPulse();
                     }, 100);
                 } else {
-                    console.log('[Heatmap] No zones data - reload chart to fetch');
-                    // Reload chart to get zones
                     if (currentSymbol) {
                         loadAndRenderChart(currentSymbol, chartResolution);
                     }
                 }
             } else {
-                stopHeatmapPulse();  // Stop pulsing when switching to basic
+                stopHeatmapPulse();
+            }
+
+            // Re-render volume if enabled
+            if (volumeEnabled && volumeStrikeData) {
+                setTimeout(() => renderVolumeByStrikeAligned(), 100);
             }
         });
     });
+
+    // Handle Volume toggle button (independent toggle)
+    const volumeToggle = document.getElementById('volumeToggle');
+    if (volumeToggle) {
+        volumeToggle.addEventListener('click', () => {
+            volumeEnabled = !volumeEnabled;
+            volumeToggle.classList.toggle('active', volumeEnabled);
+            console.log(`[Volume] Volume ${volumeEnabled ? 'enabled' : 'disabled'}`);
+
+            // Toggle volume panel split view
+            const splitContainer = document.getElementById('chartSplitContainer');
+            if (splitContainer) {
+                splitContainer.classList.toggle('volume-mode', volumeEnabled);
+            }
+
+            if (volumeEnabled) {
+                // Hide chart's right price scale (volume panel shows strikes)
+                if (priceChart) {
+                    priceChart.applyOptions({
+                        rightPriceScale: { visible: false }
+                    });
+                }
+
+                // Resize chart for split view first
+                setTimeout(() => {
+                    if (priceChart) {
+                        const wrapper = document.querySelector('.price-chart-wrapper');
+                        if (wrapper) {
+                            priceChart.applyOptions({
+                                width: wrapper.clientWidth,
+                                height: wrapper.clientHeight
+                            });
+                        }
+                    }
+
+                    // Then fetch and render volume data
+                    if (currentSymbol) {
+                        fetchAndRenderVolumeByStrike(currentSymbol);
+                    }
+
+                    // Setup resize observer for volume panel
+                    setupVolumeResizeObserver();
+
+                    // Re-render heatmap if active (to adjust to new size)
+                    if (chartMode === 'heatmap' && gexZonesData.length > 0) {
+                        setTimeout(() => {
+                            const range = getChartPriceRange();
+                            renderGexHeatmap(gexZonesData, range);
+                        }, 50);
+                    }
+                }, 150);
+            } else {
+                // Cleanup volume observers
+                cleanupVolumeObservers();
+
+                // Show chart's right price scale again
+                if (priceChart) {
+                    priceChart.applyOptions({
+                        rightPriceScale: { visible: true }
+                    });
+                }
+
+                // Resize chart back to full width
+                setTimeout(() => {
+                    if (priceChart) {
+                        const wrapper = document.querySelector('.price-chart-wrapper');
+                        if (wrapper) {
+                            priceChart.applyOptions({
+                                width: wrapper.clientWidth,
+                                height: wrapper.clientHeight
+                            });
+                        }
+                    }
+
+                    // Re-render heatmap if active
+                    if (chartMode === 'heatmap' && gexZonesData.length > 0) {
+                        setTimeout(() => {
+                            const range = getChartPriceRange();
+                            renderGexHeatmap(gexZonesData, range);
+                        }, 50);
+                    }
+                }, 150);
+            }
+        });
+    }
 
     // Re-render heatmap on window resize
     window.addEventListener('resize', () => {
@@ -1758,12 +1854,22 @@ function initWaveChart() {
     }
 }
 
-// Fetch WAVE data from API
+// Fetch WAVE data from API - try real-time first
 async function fetchWaveData(symbol, minutes = 60) {
     if (!symbol) return;
 
     try {
-        const data = await fetchAPI(`/flow/${symbol}/wave?minutes=${minutes}`);
+        // Try REAL-TIME endpoint first (Unusual Whales)
+        let data;
+        try {
+            data = await fetchAPI(`/flow/${symbol}/wave-realtime`);
+            console.log(`[WAVE] Using real-time data source: ${data.data_source || 'unusual_whales'}`);
+        } catch (realtimeError) {
+            // Fallback to regular endpoint
+            console.log('[WAVE] Real-time unavailable, using regular endpoint');
+            data = await fetchAPI(`/flow/${symbol}/wave?minutes=${minutes}`);
+        }
+
         updateWaveChart(data);
         updateWaveStats(data);
     } catch (error) {
@@ -1803,9 +1909,10 @@ function updateWaveChart(data) {
         value: (parseFloat(d.cumulative_put) || 0) / 1e6
     }));
 
+    // Support both wave_value (regular endpoint) and cumulative_net (real-time endpoint)
     const netData = history.map(d => ({
         time: Math.floor(new Date(d.timestamp).getTime() / 1000),
-        value: (parseFloat(d.wave_value) || 0) / 1e6
+        value: (parseFloat(d.wave_value) || parseFloat(d.cumulative_net) || 0) / 1e6
     }));
 
     waveCallSeries.setData(callData);
@@ -1868,26 +1975,322 @@ function setupWaveTimeframeButtons() {
     });
 }
 
-async function fetchFlowData(symbol) {
-    if (!symbol) return;
+// Volume auto-refresh interval
+let volumeRefreshInterval = null;
+const VOLUME_REFRESH_MS = 5000;  // Refresh every 5 seconds for real-time
 
-    // Only show loading on first load, not on updates (prevents flickering)
-    if (elements.flowPressureBars && !flowData) {
-        elements.flowPressureBars.innerHTML = '<div class="flow-loading">Loading flow data...</div>';
+// Start volume auto-refresh
+function startVolumeAutoRefresh() {
+    stopVolumeAutoRefresh();
+    if (volumeEnabled && currentSymbol) {
+        volumeRefreshInterval = setInterval(() => {
+            if (volumeEnabled && currentSymbol) {
+                fetchAndRenderVolumeByStrike(currentSymbol, false);  // Silent refresh
+            }
+        }, VOLUME_REFRESH_MS);
+        console.log('[Volume] Real-time auto-refresh started (5s interval)');
+    }
+}
+
+// Stop volume auto-refresh
+function stopVolumeAutoRefresh() {
+    if (volumeRefreshInterval) {
+        clearInterval(volumeRefreshInterval);
+        volumeRefreshInterval = null;
+    }
+}
+
+// Fetch and render Volume by Strike for split chart view
+async function fetchAndRenderVolumeByStrike(symbol, showLoading = true) {
+    const container = document.getElementById('volumeBarsContainer');
+    if (!container || !symbol) return;
+
+    if (showLoading) {
+        container.innerHTML = '<div class="volume-loading">Loading real-time volume...</div>';
     }
 
     try {
-        // Calculate strike range to get ~40 strikes for all symbols
-        // SPY/QQQ have $1 strikes, SPX has $5 strikes, so scale by price level
-        const spotPrice = currentData?.spot_price || 100;
-        // Target ~40 strikes: for SPY ($680, $1 strikes) = 40 range
-        // For SPX ($6800, $5 strikes) = 200 range (40 * 5)
-        const strikeInterval = spotPrice > 1000 ? 5 : 1;
-        const strikeRange = 40 * strikeInterval;
+        // Use REAL-TIME endpoint from Unusual Whales
+        const data = await fetchAPI(`/flow/${symbol}/realtime`);
 
-        const data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
+        // Store data globally for re-rendering on chart scroll
+        volumeStrikeData = data;
+
+        // Subscribe to chart changes if not already subscribed
+        subscribeVolumeToChartChanges();
+
+        // Render with chart alignment
+        renderVolumeByStrikeAligned();
+
+        // Start auto-refresh if not already running
+        if (!volumeRefreshInterval && volumeEnabled) {
+            startVolumeAutoRefresh();
+        }
+
+        // Log data source
+        if (data.data_source) {
+            console.log(`[Volume] Data source: ${data.data_source}`);
+        }
+    } catch (error) {
+        console.error('[Volume] Failed to fetch real-time volume data:', error);
+        // Fallback to regular flow endpoint
+        try {
+            const spotPrice = currentData?.spot_price || 100;
+            const strikeInterval = spotPrice > 1000 ? 5 : 1;
+            const strikeRange = 50 * strikeInterval;
+            const data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
+            volumeStrikeData = data;
+            subscribeVolumeToChartChanges();
+            renderVolumeByStrikeAligned();
+        } catch (fallbackError) {
+            container.innerHTML = '<div class="volume-loading">Failed to load volume data</div>';
+        }
+    }
+}
+
+// Subscribe to chart's visible range changes for volume panel sync
+function subscribeVolumeToChartChanges() {
+    if (volumeRangeSubscribed || !priceChart || !candleSeries) return;
+
+    // Subscribe to time scale changes (horizontal scroll)
+    priceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+        if (volumeEnabled && volumeStrikeData) {
+            renderVolumeByStrikeAligned();
+        }
+    });
+
+    // Subscribe to price scale changes (vertical scroll/zoom)
+    // Use a crosshair move handler as a proxy for price scale changes
+    priceChart.subscribeCrosshairMove(() => {
+        if (volumeEnabled && volumeStrikeData) {
+            // Debounce the render
+            if (window.volumeRenderTimeout) clearTimeout(window.volumeRenderTimeout);
+            window.volumeRenderTimeout = setTimeout(() => {
+                renderVolumeByStrikeAligned();
+            }, 50);
+        }
+    });
+
+    volumeRangeSubscribed = true;
+    console.log('[Volume] Subscribed to chart range changes');
+}
+
+// Setup resize observer to sync volume panel with chart on resize
+function setupVolumeResizeObserver() {
+    // Clean up previous observer
+    if (volumeResizeObserver) {
+        volumeResizeObserver.disconnect();
+    }
+    if (volumeSyncInterval) {
+        clearInterval(volumeSyncInterval);
+    }
+
+    const chartWrapper = document.getElementById('priceChart');
+    if (!chartWrapper) return;
+
+    // Observe chart resize
+    volumeResizeObserver = new ResizeObserver(() => {
+        if (volumeEnabled && volumeStrikeData) {
+            setTimeout(() => renderVolumeByStrikeAligned(), 50);
+        }
+    });
+    volumeResizeObserver.observe(chartWrapper);
+
+    // Also sync periodically to catch price scale changes from zooming
+    // Lightweight Charts doesn't have a direct price scale change event
+    let lastPriceRange = null;
+    volumeSyncInterval = setInterval(() => {
+        if (!volumeEnabled || !volumeStrikeData) return;
+
+        const range = getChartPriceRange();
+        if (!range) return;
+
+        const rangeKey = `${range.minPrice.toFixed(2)}-${range.maxPrice.toFixed(2)}`;
+        if (rangeKey !== lastPriceRange) {
+            lastPriceRange = rangeKey;
+            renderVolumeByStrikeAligned();
+        }
+    }, 100);
+
+    console.log('[Volume] Resize observer and sync interval setup');
+}
+
+// Cleanup volume mode observers
+function cleanupVolumeObservers() {
+    if (volumeResizeObserver) {
+        volumeResizeObserver.disconnect();
+        volumeResizeObserver = null;
+    }
+    if (volumeSyncInterval) {
+        clearInterval(volumeSyncInterval);
+        volumeSyncInterval = null;
+    }
+    // Stop auto-refresh when volume mode disabled
+    stopVolumeAutoRefresh();
+}
+
+// Render volume bars aligned with chart price scale using pixel coordinates
+function renderVolumeByStrikeAligned() {
+    const container = document.getElementById('volumeBarsContainer');
+    if (!container || !volumeStrikeData || !volumeStrikeData.strike_pressure) {
+        if (container) container.innerHTML = '<div class="volume-loading">No volume data available</div>';
+        return;
+    }
+
+    if (!candleSeries) {
+        container.innerHTML = '<div class="volume-loading">Chart not ready</div>';
+        return;
+    }
+
+    const data = volumeStrikeData;
+    const spotPrice = data.spot_price || currentData?.spot_price || 0;
+
+    // Get chart dimensions - need to account for time scale at bottom (~30px)
+    const chartWrapper = document.getElementById('priceChart');
+    if (!chartWrapper) return;
+    const chartHeight = chartWrapper.getBoundingClientRect().height;
+    const timeScaleHeight = 30;  // Approximate height of time scale
+    const plotAreaHeight = chartHeight - timeScaleHeight;
+
+    // Make volume container same height as chart's plotting area
+    container.style.height = plotAreaHeight + 'px';
+
+    // Get all strikes
+    const allStrikes = Object.keys(data.strike_pressure).map(Number);
+    if (allStrikes.length === 0) {
+        container.innerHTML = '<div class="volume-loading">No strikes in range</div>';
+        return;
+    }
+
+    // Find max premium for scaling
+    let maxPremium = 0;
+    allStrikes.forEach(strike => {
+        const sp = data.strike_pressure[strike];
+        maxPremium = Math.max(maxPremium, sp.call_premium || 0, sp.put_premium || 0);
+    });
+    if (maxPremium === 0) maxPremium = 1;
+
+    // Calculate the row height based on strike interval
+    const sortedStrikes = allStrikes.sort((a, b) => a - b);
+    const strikeInterval = sortedStrikes.length > 1 ? sortedStrikes[1] - sortedStrikes[0] : 1;
+
+    // Get price range and calculate pixels per dollar
+    const priceRange = getChartPriceRange();
+    if (!priceRange) {
+        container.innerHTML = '<div class="volume-loading">Cannot get price range</div>';
+        return;
+    }
+
+    const priceSpan = priceRange.maxPrice - priceRange.minPrice;
+    const pixelsPerDollar = plotAreaHeight / priceSpan;
+    const rowHeight = Math.max(16, strikeInterval * pixelsPerDollar);  // Min 16px height
+
+    // Build HTML with absolute positioning
+    let html = '';
+
+    allStrikes.forEach(strike => {
+        // Convert strike price to Y coordinate
+        const y = candleSeries.priceToCoordinate(strike);
+        if (y === null) return;  // Strike not visible
+
+        // Skip if outside visible area (with some buffer)
+        if (y < -rowHeight || y > plotAreaHeight + rowHeight) return;
+
+        const sp = data.strike_pressure[strike];
+        const callPremium = sp.call_premium || 0;
+        const putPremium = sp.put_premium || 0;
+        const callWidth = (callPremium / maxPremium) * 45;
+        const putWidth = (putPremium / maxPremium) * 45;
+        const isCurrentPrice = Math.abs(strike - spotPrice) < (spotPrice * 0.003);
+        const totalPremium = callPremium + putPremium;
+
+        // Calculate who's winning (calls vs puts percentage)
+        let winPct = 0;
+        let winClass = 'neutral';
+        if (totalPremium > 0) {
+            winPct = ((callPremium - putPremium) / totalPremium) * 100;
+            winClass = winPct > 0 ? 'calls-winning' : winPct < 0 ? 'puts-winning' : 'neutral';
+        }
+        const winPctStr = winPct > 0 ? `+${winPct.toFixed(0)}%` : `${winPct.toFixed(0)}%`;
+
+        html += `
+            <div class="volume-row ${isCurrentPrice ? 'current-price' : ''}"
+                 style="position: absolute; top: ${y - rowHeight/2}px; height: ${rowHeight}px; left: 0; right: 0;">
+                <span class="volume-strike">${strike}</span>
+                <div class="volume-bars">
+                    <div class="volume-call-bar" style="width: ${callWidth}%" title="Call: $${formatPremium(callPremium)}"></div>
+                    <div class="volume-put-bar" style="width: ${putWidth}%" title="Put: $${formatPremium(putPremium)}"></div>
+                </div>
+                <span class="volume-premium">$${formatPremium(totalPremium)}</span>
+                <span class="volume-pct ${winClass}">${winPctStr}</span>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html || '<div class="volume-loading">No strikes in visible range</div>';
+}
+
+// Format premium for display
+function formatPremium(value) {
+    if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+    if (value >= 1000) return (value / 1000).toFixed(0) + 'K';
+    return value.toFixed(0);
+}
+
+// Flow tab auto-refresh interval
+let flowRefreshInterval = null;
+const FLOW_REFRESH_MS = 5000;  // Refresh every 5 seconds for real-time
+
+// Start flow auto-refresh
+function startFlowAutoRefresh() {
+    stopFlowAutoRefresh();
+    if (currentSymbol) {
+        flowRefreshInterval = setInterval(() => {
+            if (currentSymbol && document.getElementById('flowContainer')?.style.display !== 'none') {
+                fetchFlowData(currentSymbol, false);  // Silent refresh
+            }
+        }, FLOW_REFRESH_MS);
+        console.log('[Flow] Real-time auto-refresh started (5s interval)');
+    }
+}
+
+// Stop flow auto-refresh
+function stopFlowAutoRefresh() {
+    if (flowRefreshInterval) {
+        clearInterval(flowRefreshInterval);
+        flowRefreshInterval = null;
+    }
+}
+
+async function fetchFlowData(symbol, showLoading = true) {
+    if (!symbol) return;
+
+    // Only show loading on first load, not on updates (prevents flickering)
+    if (showLoading && elements.flowPressureBars && !flowData) {
+        elements.flowPressureBars.innerHTML = '<div class="flow-loading">Loading real-time flow...</div>';
+    }
+
+    try {
+        // Use REAL-TIME endpoint from Unusual Whales
+        let data;
+        try {
+            data = await fetchAPI(`/flow/${symbol}/realtime`);
+            console.log(`[Flow] Using real-time data: ${data.data_source || 'unusual_whales'}`);
+        } catch (realtimeError) {
+            // Fallback to regular endpoint
+            const spotPrice = currentData?.spot_price || 100;
+            const strikeInterval = spotPrice > 1000 ? 5 : 1;
+            const strikeRange = 40 * strikeInterval;
+            data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
+        }
+
         flowData = data;
         renderFlowData(data);
+
+        // Start auto-refresh if not already running
+        if (!flowRefreshInterval) {
+            startFlowAutoRefresh();
+        }
     } catch (error) {
         console.error('Failed to fetch flow data:', error);
         if (elements.flowPressureBars) {
@@ -3461,6 +3864,7 @@ async function loadAndRenderChart(symbol, resolution = '5') {
             priceChart = LightweightCharts.createChart(chartWrapper, {
                 width: chartWrapper.clientWidth,
                 height: chartHeight,
+                autoSize: true,  // Automatically resize with container
                 layout: {
                     background: { color: '#141414' },
                     textColor: '#a0a0a0',

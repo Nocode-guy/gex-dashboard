@@ -7497,3 +7497,159 @@ body.trinity-mode .trinity-container {
         transparent 8px
     );
 }
+
+/* ============================================
+   CHART + VOLUME SPLIT VIEW
+   ============================================ */
+
+.chart-split-container {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 0;
+}
+
+.chart-split-container .price-chart-wrapper {
+    flex: 1;
+    position: relative;
+    transition: flex 0.3s ease;
+}
+
+.chart-split-container.volume-mode .price-chart-wrapper {
+    flex: 0 0 60%;
+}
+
+.chart-split-container.volume-mode .volume-panel {
+    display: flex !important;
+    flex: 0 0 40%;
+}
+
+/* Tab divider between mode and volume toggle */
+.tab-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border-color);
+    margin: 0 4px;
+}
+
+/* Volume toggle button styling */
+.chart-mode-btn.volume-toggle {
+    background: transparent;
+}
+
+.chart-mode-btn.volume-toggle.active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+/* Volume Panel */
+.volume-panel {
+    display: none;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.volume-bars-container {
+    flex: 1;
+    overflow: hidden;  /* No scrolling - syncs with chart */
+    padding: 0;
+    position: relative;  /* For absolute positioning of rows */
+}
+
+.volume-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+/* Volume Row - Horizontal bars with absolute positioning */
+.volume-row {
+    display: flex;
+    align-items: center;
+    /* height set dynamically via inline style */
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 11px;
+    box-sizing: border-box;
+}
+
+.volume-row:hover {
+    background: rgba(255,255,255,0.03);
+}
+
+.volume-row.current-price {
+    background: rgba(255,255,255,0.08);
+    border-top: 1px solid rgba(255,255,255,0.2);
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+
+.volume-strike {
+    width: 50px;
+    text-align: right;
+    padding-right: 8px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.volume-row.current-price .volume-strike {
+    color: #fbbf24;
+    font-weight: 700;
+}
+
+.volume-bars {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    height: 18px;
+    gap: 2px;
+}
+
+.volume-call-bar {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(34, 197, 94, 0.3), rgba(34, 197, 94, 0.8));
+    border-radius: 2px;
+    min-width: 0;
+}
+
+.volume-put-bar {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.8), rgba(239, 68, 68, 0.3));
+    border-radius: 2px;
+    min-width: 0;
+}
+
+.volume-premium {
+    width: 60px;
+    text-align: right;
+    padding-right: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+/* Who's winning percentage */
+.volume-pct {
+    width: 45px;
+    text-align: right;
+    padding-right: 6px;
+    font-size: 10px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.volume-pct.calls-winning {
+    color: #22c55e;  /* Green - calls winning */
+}
+
+.volume-pct.puts-winning {
+    color: #ef4444;  /* Red - puts winning */
+}
+
+.volume-pct.neutral {
+    color: var(--text-muted);
+}

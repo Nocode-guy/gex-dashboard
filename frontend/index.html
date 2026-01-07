@@ -232,6 +232,8 @@
                     <div class="chart-mode-tabs">
                         <button class="chart-mode-btn active" data-mode="basic">Basic</button>
                         <button class="chart-mode-btn" data-mode="heatmap">Heatmap</button>
+                        <span class="tab-divider"></span>
+                        <button class="chart-mode-btn volume-toggle" id="volumeToggle" data-mode="volume">Volume</button>
                         <button class="heatmap-info-btn" id="heatmapInfoBtn" title="How to read the heatmap">?</button>
                     </div>
 
@@ -291,10 +293,18 @@
                         <button class="chart-tf-btn" data-resolution="D">D</button>
                     </div>
                 </div>
-                <div class="price-chart-wrapper">
-                    <canvas id="gexHeatmapCanvas" class="heatmap-canvas"></canvas>
-                    <div class="price-chart" id="priceChart">
-                        <div class="chart-loading">Loading chart...</div>
+                <div class="chart-split-container" id="chartSplitContainer">
+                    <div class="price-chart-wrapper">
+                        <canvas id="gexHeatmapCanvas" class="heatmap-canvas"></canvas>
+                        <div class="price-chart" id="priceChart">
+                            <div class="chart-loading">Loading chart...</div>
+                        </div>
+                    </div>
+                    <!-- Volume by Strike Panel (toggle overlay) -->
+                    <div class="volume-panel" id="volumePanel" style="display: none;">
+                        <div class="volume-bars-container" id="volumeBarsContainer">
+                            <div class="volume-loading">Loading volume...</div>
+                        </div>
                     </div>
                 </div>
                 <div class="chart-legend">

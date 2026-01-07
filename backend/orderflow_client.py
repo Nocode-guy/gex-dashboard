@@ -261,10 +261,48 @@ class UnusualWhalesClient:
             print(f"Error fetching flow by strike for {ticker}: {e}")
             return {}
 
-    async def get_flow_summary(self, ticker: str) -> FlowSummary:
+    async def get_flow_by_strike_intraday(self, ticker: str) -> Dict[float, Dict]:
+        """
+        Get REAL-TIME intraday flow by strike (live during trading session).
+        This is the freshest data - updates as orders come in.
+        """
+        try:
+            data = await self._request(f"/api/stock/{ticker}/flow-per-strike-intraday")
+
+            result = {}
+            for item in data.get("data", []):
+                strike = float(item.get("strike", 0))
+                if strike > 0:
+                    result[strike] = {
+                        "call_premium": float(item.get("call_premium", 0)),
+                        "put_premium": float(item.get("put_premium", 0)),
+                        "call_volume": int(item.get("call_volume", 0)),
+                        "put_volume": int(item.get("put_volume", 0)),
+                        "call_trades": int(item.get("call_trades", 0)),
+                        "put_trades": int(item.get("put_trades", 0)),
+                        "call_volume_ask": int(item.get("call_volume_ask_side", 0)),
+                        "call_volume_bid": int(item.get("call_volume_bid_side", 0)),
+                        "put_volume_ask": int(item.get("put_volume_ask_side", 0)),
+                        "put_volume_bid": int(item.get("put_volume_bid_side", 0)),
+                        "net_premium": float(item.get("call_premium", 0)) - float(item.get("put_premium", 0)),
+                        "timestamp": item.get("date") or datetime.now().isoformat(),
+                    }
+
+            return result
+
+        except Exception as e:
+            print(f"Error fetching intraday flow by strike for {ticker}: {e}")
+            # Fallback to regular flow-per-strike
+            return await self.get_flow_by_strike(ticker)
+
+    async def get_flow_summary(self, ticker: str, use_realtime: bool = True) -> FlowSummary:
         """
         Get complete flow summary for a ticker.
         Aggregates recent flow data into actionable insights.
+
+        Args:
+            ticker: Stock symbol
+            use_realtime: If True, uses intraday data (real-time). Default True.
         """
         summary = FlowSummary(ticker=ticker, timestamp=datetime.now())
 
@@ -298,13 +336,58 @@ class UnusualWhalesClient:
             # Sort large trades by premium
             summary.large_trades.sort(key=lambda x: x.premium, reverse=True)
 
-            # Get flow by strike
-            summary.flow_by_strike = await self.get_flow_by_strike(ticker)
+            # Get flow by strike - use REAL-TIME intraday data if available
+            if use_realtime:
+                summary.flow_by_strike = await self.get_flow_by_strike_intraday(ticker)
+            else:
+                summary.flow_by_strike = await self.get_flow_by_strike(ticker)
 
         except Exception as e:
             print(f"Error building flow summary for {ticker}: {e}")
 
         return summary
+
+    async def get_net_premium_ticks(self, ticker: str) -> List[Dict]:
+        """
+        Get REAL-TIME net premium ticks for WAVE indicator.
+        Shows call/put volumes, bid/ask side breakdown, net delta over time.
+        Perfect for building the WAVE chart.
+        """
+        try:
+            data = await self._request(f"/api/stock/{ticker}/net-prem-ticks")
+
+            ticks = []
+            for item in data.get("data", []):
+                ticks.append({
+                    "timestamp": item.get("date") or item.get("timestamp"),
+                    "call_premium": float(item.get("call_premium", 0)),
+                    "put_premium": float(item.get("put_premium", 0)),
+                    "net_premium": float(item.get("net_premium", 0)),
+                    "call_volume": int(item.get("call_volume", 0)),
+                    "put_volume": int(item.get("put_volume", 0)),
+                    "call_volume_ask": int(item.get("call_volume_ask_side", 0)),
+                    "call_volume_bid": int(item.get("call_volume_bid_side", 0)),
+                    "put_volume_ask": int(item.get("put_volume_ask_side", 0)),
+                    "put_volume_bid": int(item.get("put_volume_bid_side", 0)),
+                    "net_delta": float(item.get("net_delta", 0)),
+                })
+
+            return ticks
+
+        except Exception as e:
+            print(f"Error fetching net premium ticks for {ticker}: {e}")
+            return []
+
+    async def get_greek_flow(self, ticker: str) -> Dict:
+        """
+        Get real-time Greek flow data (delta/gamma/theta flow).
+        """
+        try:
+            data = await self._request(f"/api/stock/{ticker}/greek-flow")
+            return data.get("data", {})
+        except Exception as e:
+            print(f"Error fetching greek flow for {ticker}: {e}")
+            return {}
 
     async def get_market_tide(self) -> Dict:
         """
@@ -506,8 +589,8 @@ async def enrich_gex_with_flow(
 # ===================
 _flow_client: Optional[UnusualWhalesClient] = None
 
-# Get API key from environment
-UNUSUAL_WHALES_API_KEY = os.environ.get("UNUSUAL_WHALES_API_KEY", "")
+# Get API key from environment (with default key)
+UNUSUAL_WHALES_API_KEY = os.environ.get("UNUSUAL_WHALES_API_KEY", "d1a5672b-c6fd-4de8-8e24-c50bfd82ce98")
 
 
 def get_flow_client() -> Optional[UnusualWhalesClient]:
