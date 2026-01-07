@@ -2012,16 +2012,9 @@ async function fetchAndRenderVolumeByStrike(symbol, showLoading = true) {
     }
 
     try {
-        // Try UW first for TRUE real-time intraday flow
-        let data;
-        try {
-            data = await fetchAPI(`/flow/${symbol}/volume-uw`);
-            console.log(`[Volume] Using Unusual Whales real-time intraday data`);
-        } catch (uwError) {
-            // Fallback to Polygon if UW fails
-            console.log(`[Volume] UW failed, falling back to Polygon: ${uwError.message}`);
-            data = await fetchAPI(`/flow/${symbol}/volume-live`);
-        }
+        // Use Polygon for real-time volume (shows all trades, no minimum filter)
+        const data = await fetchAPI(`/flow/${symbol}/volume-live`);
+        console.log(`[Volume] ${symbol}: source=${data.data_source}, nearest=${data.nearest_strike}, interval=${data.strike_interval}`);
 
         // Store data globally for re-rendering on chart scroll
         volumeStrikeData = data;
@@ -2035,11 +2028,6 @@ async function fetchAndRenderVolumeByStrike(symbol, showLoading = true) {
         // Start auto-refresh if not already running
         if (!volumeRefreshInterval && volumeEnabled) {
             startVolumeAutoRefresh();
-        }
-
-        // Log data source
-        if (data.data_source) {
-            console.log(`[Volume] Data source: ${data.data_source}`);
         }
     } catch (error) {
         console.error('[Volume] Failed to fetch volume data:', error);
@@ -2143,6 +2131,8 @@ function renderVolumeByStrikeAligned() {
 
     const data = volumeStrikeData;
     const spotPrice = data.spot_price || currentData?.spot_price || 0;
+    const nearestStrike = data.nearest_strike || 0;
+    const strikeIntervalFromAPI = data.strike_interval || 2.5;
 
     // Get chart dimensions - need to account for time scale at bottom (~30px)
     const chartWrapper = document.getElementById('priceChart');
@@ -2200,7 +2190,8 @@ function renderVolumeByStrikeAligned() {
         const putPremium = sp.put_premium || 0;
         const callWidth = (callPremium / maxPremium) * 45;
         const putWidth = (putPremium / maxPremium) * 45;
-        const isCurrentPrice = Math.abs(strike - spotPrice) < (spotPrice * 0.003);
+        // Highlight nearest strike (within half interval of spot)
+        const isCurrentPrice = nearestStrike ? (strike === nearestStrike) : Math.abs(strike - spotPrice) < (strikeIntervalFromAPI / 2);
         const totalPremium = callPremium + putPremium;
 
         // Calculate who's winning (calls vs puts percentage)

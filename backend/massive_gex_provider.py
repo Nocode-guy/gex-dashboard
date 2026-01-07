@@ -442,20 +442,24 @@ class MassiveGEXProvider:
 
         try:
             url = f"{self.base_url}/v3/snapshot/options/{api_symbol}"
-            params = {
-                "apiKey": self.api_key,
-                "limit": 250,
-                "expiration_date.lte": max_exp
-            }
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
 
-            if data.get("status") != "OK":
-                print(f"[Massive Fast] API error: {data}")
-                return volume_by_strike
+            # Fetch calls and puts separately to ensure we get both
+            all_results = []
+            for contract_type in ["call", "put"]:
+                params = {
+                    "apiKey": self.api_key,
+                    "limit": 250,
+                    "expiration_date.lte": max_exp,
+                    "contract_type": contract_type
+                }
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
 
-            for opt in data.get("results", []):
+                if data.get("status") == "OK":
+                    all_results.extend(data.get("results", []))
+
+            for opt in all_results:
                 try:
                     details = opt.get("details", {})
                     day = opt.get("day", {})

@@ -1689,15 +1689,13 @@ async def get_realtime_flow(symbol: str):
 
 
 @app.get("/flow/{symbol}/volume-uw")
-async def get_volume_uw(symbol: str):
+async def get_volume_uw(symbol: str, strikes_above: int = 5, strikes_below: int = 5):
     """
     REAL-TIME intraday flow by strike from Unusual Whales.
-    This is TRUE real-time data - updates as orders execute.
-    Shows actual intraday premium/volume, not daily cumulative.
+    Shows CONTINUOUS strikes around current price (no gaps).
+    Strikes with no activity show as 0.
     """
     symbol = symbol.upper()
-    STRIKES_ABOVE = 15
-    STRIKES_BELOW = 15
 
     if not ORDERFLOW_AVAILABLE:
         raise HTTPException(status_code=503, detail="UW API not available")
@@ -1709,57 +1707,56 @@ async def get_volume_uw(symbol: str):
         # Get real-time intraday flow from UW
         uw_data = await client.get_flow_by_strike_intraday(symbol)
 
-        if not uw_data:
-            raise HTTPException(status_code=404, detail=f"No UW flow data for {symbol}")
-
-        # Get spot price
+        # Get spot price from Tradier (real-time)
         spot_price = 0
-        cached = cache.get(symbol)
-        if cached:
-            spot_price = cached.spot_price
-        else:
-            try:
-                from tradier_client import get_tradier_client
-                tradier = get_tradier_client()
-                quote = await tradier.get_quote(symbol)
-                if quote:
-                    spot_price = quote.get("last", 0) or quote.get("close", 0)
-            except:
-                pass
+        try:
+            from tradier_client import get_tradier_client
+            tradier = get_tradier_client()
+            quote = await tradier.get_quote(symbol)
+            if quote:
+                spot_price = quote.get("last", 0) or quote.get("close", 0)
+        except:
+            pass
 
-        # Detect strike interval from UW data
-        uw_strikes = sorted(uw_data.keys())
-        if len(uw_strikes) >= 3:
-            intervals = [uw_strikes[i+1] - uw_strikes[i] for i in range(len(uw_strikes)-1)]
-            small_intervals = [i for i in intervals if 0.5 <= i <= 10]
-            if small_intervals:
-                from collections import Counter
-                interval_counts = Counter([round(i, 1) for i in small_intervals])
-                strike_interval = interval_counts.most_common(1)[0][0]
-            else:
-                strike_interval = 5
-        else:
-            strike_interval = 5
+        # Fallback to cache
+        if spot_price == 0:
+            cached = cache.get(symbol)
+            if cached:
+                spot_price = cached.spot_price
 
+        if spot_price == 0:
+            raise HTTPException(status_code=404, detail=f"Could not get spot price for {symbol}")
+
+        # Determine strike interval based on symbol type
+        # ETFs have $1 strikes, stocks typically have $2.50
+        etfs = {"SPY", "QQQ", "IWM", "DIA", "XLF", "XLE", "XLK", "GLD", "SLV", "TLT", "EEM", "VXX", "UVXY", "SQQQ", "TQQQ"}
+        if symbol in etfs:
+            strike_interval = 1.0
+        else:
+            # For stocks, use $2.50 intervals (standard for liquid stocks)
+            strike_interval = 2.5
+
+        # Generate continuous strikes around spot price
         # Round spot to nearest strike
-        if spot_price > 0:
-            rounded_spot = round(spot_price / strike_interval) * strike_interval
-        else:
-            # Use median of UW strikes if no spot price
-            rounded_spot = uw_strikes[len(uw_strikes)//2] if uw_strikes else 0
+        nearest_strike = round(spot_price / strike_interval) * strike_interval
 
-        # Filter to ±15 strikes around spot
-        min_strike = rounded_spot - (STRIKES_BELOW * strike_interval)
-        max_strike = rounded_spot + (STRIKES_ABOVE * strike_interval)
+        # Generate strikes above and below
+        generated_strikes = []
+        for i in range(-strikes_below, strikes_above + 1):
+            strike = nearest_strike + (i * strike_interval)
+            if strike > 0:
+                generated_strikes.append(strike)
 
+        # Build response with all generated strikes
         strike_pressure = {}
         total_call = 0
         total_put = 0
 
-        for strike, data in uw_data.items():
-            if min_strike <= strike <= max_strike:
-                strike_key = str(int(strike)) if strike == int(strike) else str(strike)
-                strike_pressure[strike_key] = {
+        for strike in generated_strikes:
+            # Check if UW has data for this strike
+            if uw_data and strike in uw_data:
+                data = uw_data[strike]
+                strike_pressure[str(int(strike)) if strike == int(strike) else str(strike)] = {
                     "call_premium": data.get("call_premium", 0),
                     "put_premium": data.get("put_premium", 0),
                     "call_volume": data.get("call_volume", 0),
@@ -1772,12 +1769,26 @@ async def get_volume_uw(symbol: str):
                 }
                 total_call += data.get("call_premium", 0)
                 total_put += data.get("put_premium", 0)
+            else:
+                # No data for this strike - show zeros
+                strike_pressure[str(int(strike)) if strike == int(strike) else str(strike)] = {
+                    "call_premium": 0,
+                    "put_premium": 0,
+                    "call_volume": 0,
+                    "put_volume": 0,
+                    "call_volume_ask": 0,
+                    "call_volume_bid": 0,
+                    "put_volume_ask": 0,
+                    "put_volume_bid": 0,
+                    "net_premium": 0,
+                }
 
-        print(f"[UW Volume] {symbol}: {len(strike_pressure)} strikes, spot={spot_price:.2f}")
+        print(f"[UW Volume] {symbol}: spot=${spot_price:.2f}, interval=${strike_interval}, showing {len(strike_pressure)} continuous strikes")
 
         return {
             "symbol": symbol,
             "spot_price": spot_price,
+            "strike_interval": strike_interval,
             "timestamp": datetime.now().isoformat(),
             "data_source": "unusual_whales_intraday",
             "strike_pressure": strike_pressure,
@@ -1794,96 +1805,142 @@ async def get_volume_uw(symbol: str):
 
 
 @app.get("/flow/{symbol}/volume-live")
-async def get_volume_live(symbol: str):
+async def get_volume_live(symbol: str, source: str = Query("polygon", description="Data source: polygon, uw, auto")):
     """
-    FAST real-time volume by strike from Polygon.
-    Polls every 5 seconds for live volume updates.
-    Only fetches near-term expirations for speed.
+    Real-time intraday volume by strike.
+    - source=polygon: Polygon data (default - shows all trades)
+    - source=uw: Unusual Whales intraday (large trades only)
+    - source=auto: Try UW first, fallback to Polygon
+
+    Returns current strike ±2 strikes (5 rows total) for focused view.
     """
     symbol = symbol.upper()
-    STRIKES_ABOVE = 15
-    STRIKES_BELOW = 15
+    WINDOW_SIZE = 2  # ±2 strikes from current
 
     try:
-        # Get spot price from cache
-        cached = cache.get(symbol)
-        spot_price = cached.spot_price if cached else 0
+        # Get spot price from Tradier (real-time)
+        spot_price = 0
+        try:
+            from tradier_client import get_tradier_client
+            tradier = get_tradier_client()
+            quote = await tradier.get_quote(symbol)
+            if quote:
+                spot_price = quote.get("last", 0) or quote.get("close", 0)
+        except:
+            pass
 
-        # Get spot from Tradier if not cached
+        # Fallback to cache
         if spot_price == 0:
-            try:
-                from tradier_client import get_tradier_client
-                tradier = get_tradier_client()
-                quote = await tradier.get_quote(symbol)
-                if quote:
-                    spot_price = quote.get("last", 0) or quote.get("close", 0)
-            except:
-                pass
+            cached = cache.get(symbol)
+            if cached:
+                spot_price = cached.spot_price
 
         if spot_price == 0:
             raise HTTPException(status_code=404, detail=f"Cannot get spot price for {symbol}")
 
-        # Fetch fresh volume from Polygon (fast method)
-        from massive_gex_provider import get_massive_provider
-        provider = get_massive_provider()
-        polygon_volume = await provider.get_volume_by_strike_fast(symbol, spot_price)
+        # Try UW first (if source is auto or uw)
+        uw_data = None
+        data_source = "polygon_live"
 
-        # Only major ETFs use $1 intervals
-        ETFS_1_DOLLAR = {'SPY', 'QQQ', 'IWM', 'DIA'}
+        if source in ("auto", "uw") and ORDERFLOW_AVAILABLE:
+            try:
+                from orderflow_client import get_flow_client
+                client = get_flow_client()
+                uw_data = await client.get_flow_by_strike_intraday(symbol)
+                if uw_data:
+                    data_source = "unusual_whales_intraday"
+            except Exception as e:
+                print(f"[Volume] UW failed for {symbol}: {e}")
+                uw_data = None
 
-        if symbol in ETFS_1_DOLLAR:
-            strike_interval = 1
+        # If UW failed or source=polygon, use Polygon
+        if uw_data is None or source == "polygon":
+            from massive_gex_provider import get_massive_provider
+            provider = get_massive_provider()
+            polygon_volume = await provider.get_volume_by_strike_fast(symbol, spot_price)
+            data_source = "polygon_live"
         else:
-            # Detect interval from Polygon data
-            polygon_strikes = sorted(polygon_volume.keys())
-            if len(polygon_strikes) >= 3:
-                intervals = [polygon_strikes[i+1] - polygon_strikes[i] for i in range(len(polygon_strikes)-1)]
-                small_intervals = [i for i in intervals if 0.5 <= i <= 10]
-                if small_intervals:
-                    from collections import Counter
-                    interval_counts = Counter([round(i, 1) for i in small_intervals])
-                    strike_interval = interval_counts.most_common(1)[0][0]
-                else:
-                    strike_interval = 5
-            else:
-                strike_interval = 5
+            polygon_volume = None
 
-        # Round spot to nearest strike
-        rounded_spot = round(spot_price / strike_interval) * strike_interval
+        # Determine strike interval
+        etfs = {"SPY", "QQQ", "IWM", "DIA", "XLF", "XLE", "XLK", "GLD", "SLV", "TLT"}
+        if symbol in etfs:
+            strike_interval = 1.0
+        else:
+            strike_interval = 2.5  # $2.50 for stocks
 
-        # Generate strikes and build response
+        # Find nearest strike to spot
+        nearest_strike = round(spot_price / strike_interval) * strike_interval
+
+        # Generate window: ±WINDOW_SIZE strikes
+        window_strikes = []
+        for i in range(-WINDOW_SIZE, WINDOW_SIZE + 1):
+            strike = nearest_strike + (i * strike_interval)
+            if strike > 0:
+                window_strikes.append(strike)
+
+        # Build response
         strike_pressure = {}
-        total_call_vol = 0
-        total_put_vol = 0
+        total_call = 0
+        total_put = 0
 
-        for i in range(-STRIKES_BELOW, STRIKES_ABOVE + 1):
-            strike = rounded_spot + (i * strike_interval)
+        for strike in window_strikes:
             strike_key = str(int(strike)) if strike == int(strike) else str(strike)
 
-            vol_data = polygon_volume.get(strike, {})
-            call_vol = vol_data.get("call_volume", 0)
-            put_vol = vol_data.get("put_volume", 0)
+            if uw_data and strike in uw_data:
+                # Use UW intraday data
+                data = uw_data[strike]
+                strike_pressure[strike_key] = {
+                    "call_premium": data.get("call_premium", 0),
+                    "put_premium": data.get("put_premium", 0),
+                    "call_volume": data.get("call_volume", 0),
+                    "put_volume": data.get("put_volume", 0),
+                    "call_volume_ask": data.get("call_volume_ask", 0),
+                    "call_volume_bid": data.get("call_volume_bid", 0),
+                    "put_volume_ask": data.get("put_volume_ask", 0),
+                    "put_volume_bid": data.get("put_volume_bid", 0),
+                    "net_premium": data.get("net_premium", 0),
+                }
+                total_call += data.get("call_premium", 0)
+                total_put += data.get("put_premium", 0)
+            elif polygon_volume and strike in polygon_volume:
+                # Use Polygon volume
+                vol = polygon_volume[strike]
+                call_vol = vol.get("call_volume", 0)
+                put_vol = vol.get("put_volume", 0)
+                strike_pressure[strike_key] = {
+                    "call_premium": call_vol,
+                    "put_premium": put_vol,
+                    "call_volume": call_vol,
+                    "put_volume": put_vol,
+                    "net_premium": call_vol - put_vol,
+                }
+                total_call += call_vol
+                total_put += put_vol
+            else:
+                # No data - show zeros
+                strike_pressure[strike_key] = {
+                    "call_premium": 0,
+                    "put_premium": 0,
+                    "call_volume": 0,
+                    "put_volume": 0,
+                    "net_premium": 0,
+                }
 
-            strike_pressure[strike_key] = {
-                "call_premium": call_vol,
-                "put_premium": put_vol,
-                "call_volume": call_vol,
-                "put_volume": put_vol,
-                "net_premium": call_vol - put_vol,
-            }
-            total_call_vol += call_vol
-            total_put_vol += put_vol
+        print(f"[Volume] {symbol}: spot=${spot_price:.2f}, nearest={nearest_strike}, window={len(window_strikes)} strikes, source={data_source}")
 
         return {
             "symbol": symbol,
             "spot_price": spot_price,
+            "nearest_strike": nearest_strike,
+            "strike_interval": strike_interval,
             "timestamp": datetime.now().isoformat(),
-            "data_source": "polygon_live",
+            "data_source": data_source,
             "strike_pressure": strike_pressure,
-            "total_call_premium": total_call_vol,
-            "total_put_premium": total_put_vol,
-            "net_premium": total_call_vol - total_put_vol,
-            "sentiment": "bullish" if total_call_vol > total_put_vol else "bearish",
+            "total_call_premium": total_call,
+            "total_put_premium": total_put,
+            "net_premium": total_call - total_put,
+            "sentiment": "bullish" if total_call > total_put else "bearish",
         }
 
     except HTTPException:
