@@ -1660,6 +1660,7 @@ async def get_realtime_flow(symbol: str):
 
         # Round spot to nearest strike
         rounded_spot = round(spot_price / strike_interval) * strike_interval
+        print(f"[Flow Realtime] {symbol}: spot={spot_price:.2f}, interval={strike_interval}, rounded={rounded_spot}")
 
         # Generate ALL strikes in range (15 below to 15 above)
         strike_pressure = {}
@@ -1667,9 +1668,11 @@ async def get_realtime_flow(symbol: str):
         total_put = 0
 
         # Generate all 31 strikes (15 below + spot + 15 above)
+        generated_strikes = []
         for i in range(-STRIKES_BELOW, STRIKES_ABOVE + 1):
             strike = rounded_spot + (i * strike_interval)
             strike_key = str(int(strike)) if strike == int(strike) else str(strike)
+            generated_strikes.append(strike_key)
 
             # Look up UW data or use zeros
             data = uw_data.get(strike, {})
@@ -1687,6 +1690,8 @@ async def get_realtime_flow(symbol: str):
             }
             total_call += data.get("call_premium", 0)
             total_put += data.get("put_premium", 0)
+
+        print(f"[Flow Realtime] Generated {len(strike_pressure)} strikes: {list(strike_pressure.keys())[:5]}...{list(strike_pressure.keys())[-5:]}")
 
         net_premium = total_call - total_put
         sentiment = "bullish" if net_premium > 0 else "bearish" if net_premium < 0 else "neutral"
