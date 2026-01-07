@@ -94,7 +94,21 @@ class MassiveGEXProvider:
                 print(f"[Massive] Error estimating index spot for {symbol}: {e}")
             return 0  # Index symbols have no other fallback
 
-        # Get price from options snapshot underlying_asset (real-time with Options Starter plan)
+        # PRIMARY: Try Tradier for real-time stock quote
+        try:
+            from tradier_client import get_tradier_client
+            tradier = get_tradier_client()
+            quote = await tradier.get_quote(symbol)
+            if quote:
+                price = quote.get("last", 0) or quote.get("close", 0)
+                if price > 0:
+                    self._spot_cache[symbol] = (price, datetime.now())
+                    print(f"[Tradier] Got spot price for {symbol}: ${price:.2f}")
+                    return price
+        except Exception as e:
+            print(f"[Tradier] Quote failed for {symbol}: {e}")
+
+        # FALLBACK: Get price from Polygon options snapshot underlying_asset
         try:
             url = f"{self.base_url}/v3/snapshot/options/{symbol}"
             response = await client.get(url, params={"apiKey": self.api_key, "limit": 1})
@@ -105,11 +119,11 @@ class MassiveGEXProvider:
                 price = data["results"][0].get("underlying_asset", {}).get("price", 0)
                 if price > 0:
                     self._spot_cache[symbol] = (price, datetime.now())
-                    print(f"[Massive] Got spot price for {symbol}: ${price:.2f}")
+                    print(f"[Polygon] Got spot price for {symbol}: ${price:.2f}")
                     return price
 
         except Exception as e:
-            print(f"[Massive] Options snapshot failed for {symbol}: {e}")
+            print(f"[Polygon] Options snapshot failed for {symbol}: {e}")
 
         return 0
 
