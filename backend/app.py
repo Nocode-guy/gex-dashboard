@@ -1688,6 +1688,105 @@ async def get_realtime_flow(symbol: str):
         raise HTTPException(status_code=500, detail=f"Error fetching volume data: {str(e)}")
 
 
+@app.get("/flow/{symbol}/volume-live")
+async def get_volume_live(symbol: str):
+    """
+    FAST real-time volume by strike from Polygon.
+    Polls every 5 seconds for live volume updates.
+    Only fetches near-term expirations for speed.
+    """
+    symbol = symbol.upper()
+    STRIKES_ABOVE = 15
+    STRIKES_BELOW = 15
+
+    try:
+        # Get spot price from cache
+        cached = cache.get(symbol)
+        spot_price = cached.spot_price if cached else 0
+
+        # Get spot from Tradier if not cached
+        if spot_price == 0:
+            try:
+                from tradier_client import get_tradier_client
+                tradier = get_tradier_client()
+                quote = await tradier.get_quote(symbol)
+                if quote:
+                    spot_price = quote.get("last", 0) or quote.get("close", 0)
+            except:
+                pass
+
+        if spot_price == 0:
+            raise HTTPException(status_code=404, detail=f"Cannot get spot price for {symbol}")
+
+        # Fetch fresh volume from Polygon (fast method)
+        from massive_gex_provider import get_massive_provider
+        provider = get_massive_provider()
+        polygon_volume = await provider.get_volume_by_strike_fast(symbol, spot_price)
+
+        # Only major ETFs use $1 intervals
+        ETFS_1_DOLLAR = {'SPY', 'QQQ', 'IWM', 'DIA'}
+
+        if symbol in ETFS_1_DOLLAR:
+            strike_interval = 1
+        else:
+            # Detect interval from Polygon data
+            polygon_strikes = sorted(polygon_volume.keys())
+            if len(polygon_strikes) >= 3:
+                intervals = [polygon_strikes[i+1] - polygon_strikes[i] for i in range(len(polygon_strikes)-1)]
+                small_intervals = [i for i in intervals if 0.5 <= i <= 10]
+                if small_intervals:
+                    from collections import Counter
+                    interval_counts = Counter([round(i, 1) for i in small_intervals])
+                    strike_interval = interval_counts.most_common(1)[0][0]
+                else:
+                    strike_interval = 5
+            else:
+                strike_interval = 5
+
+        # Round spot to nearest strike
+        rounded_spot = round(spot_price / strike_interval) * strike_interval
+
+        # Generate strikes and build response
+        strike_pressure = {}
+        total_call_vol = 0
+        total_put_vol = 0
+
+        for i in range(-STRIKES_BELOW, STRIKES_ABOVE + 1):
+            strike = rounded_spot + (i * strike_interval)
+            strike_key = str(int(strike)) if strike == int(strike) else str(strike)
+
+            vol_data = polygon_volume.get(strike, {})
+            call_vol = vol_data.get("call_volume", 0)
+            put_vol = vol_data.get("put_volume", 0)
+
+            strike_pressure[strike_key] = {
+                "call_premium": call_vol,
+                "put_premium": put_vol,
+                "call_volume": call_vol,
+                "put_volume": put_vol,
+                "net_premium": call_vol - put_vol,
+            }
+            total_call_vol += call_vol
+            total_put_vol += put_vol
+
+        return {
+            "symbol": symbol,
+            "spot_price": spot_price,
+            "timestamp": datetime.now().isoformat(),
+            "data_source": "polygon_live",
+            "strike_pressure": strike_pressure,
+            "total_call_premium": total_call_vol,
+            "total_put_premium": total_put_vol,
+            "net_premium": total_call_vol - total_put_vol,
+            "sentiment": "bullish" if total_call_vol > total_put_vol else "bearish",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching live volume: {str(e)}")
+
+
 @app.get("/flow/{symbol}/wave-realtime")
 async def get_wave_realtime(symbol: str):
     """

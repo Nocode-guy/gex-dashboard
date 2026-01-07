@@ -1979,7 +1979,7 @@ function setupWaveTimeframeButtons() {
 
 // Volume auto-refresh interval
 let volumeRefreshInterval = null;
-const VOLUME_REFRESH_MS = 3000;  // Refresh every 3 seconds for real-time
+const VOLUME_REFRESH_MS = 5000;  // Refresh every 5 seconds for live Polygon data
 
 // Start volume auto-refresh
 function startVolumeAutoRefresh() {
@@ -2012,8 +2012,8 @@ async function fetchAndRenderVolumeByStrike(symbol, showLoading = true) {
     }
 
     try {
-        // Use REAL-TIME endpoint from Unusual Whales
-        const data = await fetchAPI(`/flow/${symbol}/realtime`);
+        // Use LIVE endpoint for fast Polygon volume updates (every 5 seconds)
+        const data = await fetchAPI(`/flow/${symbol}/volume-live`);
 
         // Store data globally for re-rendering on chart scroll
         volumeStrikeData = data;

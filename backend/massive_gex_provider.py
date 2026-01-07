@@ -410,6 +410,78 @@ class MassiveGEXProvider:
             "data_source": "massive"
         }
 
+    async def get_volume_by_strike_fast(
+        self,
+        symbol: str,
+        spot_price: float = None,
+        strikes_above: int = 15,
+        strikes_below: int = 15
+    ) -> Dict[float, Dict[str, int]]:
+        """
+        Fast fetch of just volume by strike from Polygon.
+        Used for real-time volume panel updates (every 5 seconds).
+
+        Returns: {strike: {"call_volume": int, "put_volume": int}}
+        """
+        symbol = symbol.upper()
+        client = await self._get_client()
+
+        # Get spot price if not provided
+        if not spot_price:
+            spot_price = await self.get_spot_price(symbol)
+
+        # Index symbols need I: prefix
+        index_symbols = {"SPX", "NDX", "RUT", "VIX", "DJX", "OEX"}
+        api_symbol = f"I:{symbol}" if symbol in index_symbols else symbol
+
+        # Fetch options snapshot (limit to near-term for speed)
+        today = datetime.now()
+        max_exp = (today + timedelta(days=14)).strftime("%Y-%m-%d")  # Only next 2 weeks for speed
+
+        volume_by_strike: Dict[float, Dict[str, int]] = {}
+
+        try:
+            url = f"{self.base_url}/v3/snapshot/options/{api_symbol}"
+            params = {
+                "apiKey": self.api_key,
+                "limit": 250,
+                "expiration_date.lte": max_exp
+            }
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get("status") != "OK":
+                print(f"[Massive Fast] API error: {data}")
+                return volume_by_strike
+
+            for opt in data.get("results", []):
+                try:
+                    details = opt.get("details", {})
+                    day = opt.get("day", {})
+
+                    strike = details.get("strike_price", 0)
+                    contract_type = details.get("contract_type", "").lower()
+                    volume = day.get("volume", 0) or 0
+
+                    if strike not in volume_by_strike:
+                        volume_by_strike[strike] = {"call_volume": 0, "put_volume": 0}
+
+                    if contract_type == "call":
+                        volume_by_strike[strike]["call_volume"] += volume
+                    else:
+                        volume_by_strike[strike]["put_volume"] += volume
+
+                except Exception:
+                    continue
+
+            print(f"[Massive Fast] Got volume for {len(volume_by_strike)} strikes for {symbol}")
+
+        except Exception as e:
+            print(f"[Massive Fast] Error: {e}")
+
+        return volume_by_strike
+
     async def get_full_chain_with_greeks(
         self,
         symbol: str,
