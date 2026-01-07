@@ -1643,23 +1643,26 @@ async def get_realtime_flow(symbol: str):
         # Round spot to nearest strike
         rounded_spot = round(spot_price / strike_interval) * strike_interval
 
-        # Calculate strike range (15 above, 15 below)
-        min_strike = rounded_spot - (STRIKES_BELOW * strike_interval)
-        max_strike = rounded_spot + (STRIKES_ABOVE * strike_interval)
-
-        # Convert to strike_pressure format, filtering to range
+        # Generate ALL strikes in range (15 below to 15 above)
+        # This ensures continuous strike list even if UW has no activity for some strikes
         strike_pressure = {}
         total_call = 0
         total_put = 0
 
+        # Convert UW data keys to float for lookup
+        uw_data = {}
         for strike_str, data in flow_by_strike.items():
-            strike = float(strike_str)
+            uw_data[float(strike_str)] = data
 
-            # Filter to 15 above and 15 below
-            if strike < min_strike or strike > max_strike:
-                continue
+        # Generate all 31 strikes (15 below + spot + 15 above)
+        for i in range(-STRIKES_BELOW, STRIKES_ABOVE + 1):
+            strike = rounded_spot + (i * strike_interval)
+            strike_key = str(int(strike)) if strike == int(strike) else str(strike)
 
-            strike_pressure[strike_str] = {
+            # Look up UW data or use zeros
+            data = uw_data.get(strike, {})
+
+            strike_pressure[strike_key] = {
                 "call_premium": data.get("call_premium", 0),
                 "put_premium": data.get("put_premium", 0),
                 "call_volume": data.get("call_volume", 0),
