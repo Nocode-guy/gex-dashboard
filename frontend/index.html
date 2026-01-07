@@ -283,6 +283,30 @@
                                     <li>White lines = key liquidity levels to watch</li>
                                 </ul>
                             </div>
+
+                            <p style="margin: 16px 0 8px 0; color: var(--text-secondary); border-top: 1px solid var(--border-color); padding-top: 12px;"><strong>Volume Panel (Real-Time):</strong></p>
+                            <div class="heatmap-color-legend">
+                                <div class="legend-row">
+                                    <span class="color-box" style="background: #22c55e;"></span>
+                                    <span><strong>Green Bar</strong> - Call Premium at strike</span>
+                                </div>
+                                <div class="legend-row">
+                                    <span class="color-box" style="background: #ef4444;"></span>
+                                    <span><strong>Red Bar</strong> - Put Premium at strike</span>
+                                </div>
+                                <div class="legend-row">
+                                    <span style="color: #22c55e; font-weight: 600; width: 20px;">+%</span>
+                                    <span><strong>Green %</strong> - Calls winning at strike</span>
+                                </div>
+                                <div class="legend-row">
+                                    <span style="color: #ef4444; font-weight: 600; width: 20px;">-%</span>
+                                    <span><strong>Red %</strong> - Puts winning at strike</span>
+                                </div>
+                            </div>
+                            <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                                Data updates every 5 seconds from Unusual Whales.<br>
+                                +100% = all calls, -100% = all puts, 0% = equal.
+                            </p>
                         </div>
                     </div>
                     <div class="chart-timeframe">
