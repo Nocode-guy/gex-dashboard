@@ -442,6 +442,15 @@ body {
     color: var(--text-primary);
 }
 
+.interval-label {
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
 .interval-option.active {
     color: var(--accent-blue);
 }
