@@ -76,6 +76,8 @@ class StrikeGEX:
     put_dex: float = 0.0
     net_dex: float = 0.0
     total_oi: int = 0
+    call_volume: int = 0  # Daily call volume from Polygon
+    put_volume: int = 0   # Daily put volume from Polygon
     expirations: Dict[str, float] = field(default_factory=dict)  # expiry -> GEX
     vex_expirations: Dict[str, float] = field(default_factory=dict)  # expiry -> VEX
     dex_expirations: Dict[str, float] = field(default_factory=dict)  # expiry -> DEX
@@ -169,6 +171,8 @@ class GEXResult:
     gex_flip_level: Optional[float] = None
     expected_move: dict = field(default_factory=dict)
     put_call_walls: dict = field(default_factory=dict)
+    # Volume by strike from Polygon
+    volume_by_strike: Dict[float, Dict[str, int]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -412,10 +416,12 @@ class GEXCalculator:
                 strikes[strike].call_gex += gex
                 strikes[strike].call_vex += vex
                 strikes[strike].call_dex += dex
+                strikes[strike].call_volume += contract.volume
             else:
                 strikes[strike].put_gex += gex
                 strikes[strike].put_vex += vex
                 strikes[strike].put_dex += dex
+                strikes[strike].put_volume += contract.volume
 
             strikes[strike].total_oi += contract.open_interest
 
@@ -1052,6 +1058,12 @@ class GEXCalculator:
         expected_move = self.calculate_expected_move(contracts, spot_price)
         put_call_walls = self.build_put_call_walls(strikes, spot_price)
 
+        # Build volume by strike dict from aggregated data
+        volume_by_strike = {
+            strike: {"call_volume": s.call_volume, "put_volume": s.put_volume}
+            for strike, s in strikes.items()
+        }
+
         return GEXResult(
             symbol=symbol,
             spot_price=spot_price,
@@ -1087,4 +1099,5 @@ class GEXCalculator:
             gex_flip_level=gex_flip,
             expected_move=expected_move,
             put_call_walls=put_call_walls,
+            volume_by_strike=volume_by_strike,
         )

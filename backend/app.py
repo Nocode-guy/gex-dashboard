@@ -1592,48 +1592,25 @@ async def get_market_tide():
 @app.get("/flow/{symbol}/realtime")
 async def get_realtime_flow(symbol: str):
     """
-    Get REAL-TIME options flow data from Unusual Whales.
-    Returns intraday volume by strike with live updates.
+    Get options volume by strike from Polygon (via cached GEX data).
+    Uses daily volume from options chain for ALL strikes.
     Filters to 15 strikes above and 15 below spot price.
     """
     symbol = symbol.upper()
     STRIKES_ABOVE = 15
     STRIKES_BELOW = 15
 
-    if not ORDERFLOW_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Real-time flow not available. Unusual Whales API required."
-        )
-
-    from orderflow_client import get_flow_client
-    client = get_flow_client()
-
     try:
-        # Get real-time intraday flow by strike
-        flow_by_strike = await client.get_flow_by_strike_intraday(symbol)
+        # Get cached GEX data which includes volume_by_strike from Polygon
+        cached = cache.get(symbol)
+        if not cached:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No cached data for {symbol}. Trigger a GEX refresh first."
+            )
 
-        # Get spot price from Tradier (most reliable real-time source)
-        spot_price = 0
-        try:
-            from tradier_client import get_tradier_client
-            tradier = get_tradier_client()
-            quote = await tradier.get_quote(symbol)
-            if quote:
-                spot_price = quote.get("last", 0) or quote.get("close", 0)
-        except Exception as e:
-            print(f"[Flow Realtime] Tradier quote failed: {e}")
-
-        # Fallback to cache if Tradier failed
-        if spot_price == 0:
-            cached = cache.get(symbol)
-            if cached:
-                spot_price = cached.spot_price
-
-        # Convert UW data keys to float for lookup
-        uw_data = {}
-        for strike_str, data in flow_by_strike.items():
-            uw_data[float(strike_str)] = data
+        spot_price = cached.spot_price
+        polygon_volume = cached.volume_by_strike  # Dict[float, {call_volume, put_volume}]
 
         # Major ETFs/stocks use $1 strike intervals
         LIQUID_SYMBOLS_1_DOLLAR = {'SPY', 'QQQ', 'IWM', 'DIA', 'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'META', 'NVDA', 'TSLA', 'AMD', 'SPX', 'NDX'}
@@ -1641,15 +1618,12 @@ async def get_realtime_flow(symbol: str):
         if symbol in LIQUID_SYMBOLS_1_DOLLAR:
             strike_interval = 1
         else:
-            # For other symbols, try to detect from UW data
-            uw_strikes = sorted(uw_data.keys())
-            if len(uw_strikes) >= 3:
-                # Calculate intervals and find the most common small one
-                intervals = [uw_strikes[i+1] - uw_strikes[i] for i in range(len(uw_strikes)-1)]
-                # Filter out large gaps (outliers), keep intervals <= 10
+            # Detect interval from Polygon volume data
+            polygon_strikes = sorted(polygon_volume.keys())
+            if len(polygon_strikes) >= 3:
+                intervals = [polygon_strikes[i+1] - polygon_strikes[i] for i in range(len(polygon_strikes)-1)]
                 small_intervals = [i for i in intervals if 0.5 <= i <= 10]
                 if small_intervals:
-                    # Use the most common interval
                     from collections import Counter
                     interval_counts = Counter([round(i, 1) for i in small_intervals])
                     strike_interval = interval_counts.most_common(1)[0][0]
@@ -1664,52 +1638,53 @@ async def get_realtime_flow(symbol: str):
 
         # Generate ALL strikes in range (15 below to 15 above)
         strike_pressure = {}
-        total_call = 0
-        total_put = 0
+        total_call_vol = 0
+        total_put_vol = 0
 
-        # Generate all 31 strikes (15 below + spot + 15 above)
-        generated_strikes = []
         for i in range(-STRIKES_BELOW, STRIKES_ABOVE + 1):
             strike = rounded_spot + (i * strike_interval)
             strike_key = str(int(strike)) if strike == int(strike) else str(strike)
-            generated_strikes.append(strike_key)
 
-            # Look up UW data or use zeros
-            data = uw_data.get(strike, {})
+            # Get Polygon volume for this strike
+            vol_data = polygon_volume.get(strike, {})
+            call_vol = vol_data.get("call_volume", 0)
+            put_vol = vol_data.get("put_volume", 0)
 
             strike_pressure[strike_key] = {
-                "call_premium": data.get("call_premium", 0),
-                "put_premium": data.get("put_premium", 0),
-                "call_volume": data.get("call_volume", 0),
-                "put_volume": data.get("put_volume", 0),
-                "call_volume_ask": data.get("call_volume_ask", 0),
-                "call_volume_bid": data.get("call_volume_bid", 0),
-                "put_volume_ask": data.get("put_volume_ask", 0),
-                "put_volume_bid": data.get("put_volume_bid", 0),
-                "net_premium": data.get("net_premium", 0),
+                "call_premium": call_vol,  # Using volume as "premium" for display
+                "put_premium": put_vol,
+                "call_volume": call_vol,
+                "put_volume": put_vol,
+                "call_volume_ask": 0,
+                "call_volume_bid": 0,
+                "put_volume_ask": 0,
+                "put_volume_bid": 0,
+                "net_premium": call_vol - put_vol,
             }
-            total_call += data.get("call_premium", 0)
-            total_put += data.get("put_premium", 0)
+            total_call_vol += call_vol
+            total_put_vol += put_vol
 
-        print(f"[Flow Realtime] Generated {len(strike_pressure)} strikes: {list(strike_pressure.keys())[:5]}...{list(strike_pressure.keys())[-5:]}")
+        print(f"[Flow Realtime] Generated {len(strike_pressure)} strikes from Polygon volume")
 
-        net_premium = total_call - total_put
-        sentiment = "bullish" if net_premium > 0 else "bearish" if net_premium < 0 else "neutral"
+        net_volume = total_call_vol - total_put_vol
+        sentiment = "bullish" if net_volume > 0 else "bearish" if net_volume < 0 else "neutral"
 
         return {
             "symbol": symbol,
             "spot_price": spot_price,
             "timestamp": datetime.now().isoformat(),
-            "data_source": "unusual_whales_realtime",
+            "data_source": "polygon_volume",
             "strike_pressure": strike_pressure,
-            "total_call_premium": total_call,
-            "total_put_premium": total_put,
-            "net_premium": net_premium,
+            "total_call_premium": total_call_vol,
+            "total_put_premium": total_put_vol,
+            "net_premium": net_volume,
             "sentiment": sentiment,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching real-time flow: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching volume data: {str(e)}")
 
 
 @app.get("/flow/{symbol}/wave-realtime")
