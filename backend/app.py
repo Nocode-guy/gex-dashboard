@@ -1630,29 +1630,32 @@ async def get_realtime_flow(symbol: str):
             if cached:
                 spot_price = cached.spot_price
 
-        # Determine strike interval based on price
-        if spot_price > 1000:
-            strike_interval = 10
-        elif spot_price > 200:
-            strike_interval = 5
-        elif spot_price > 50:
-            strike_interval = 2.5
+        # Convert UW data keys to float for lookup
+        uw_data = {}
+        for strike_str, data in flow_by_strike.items():
+            uw_data[float(strike_str)] = data
+
+        # Detect actual strike interval from UW data
+        uw_strikes = sorted(uw_data.keys())
+        if len(uw_strikes) >= 2:
+            # Find most common interval between consecutive strikes
+            intervals = [uw_strikes[i+1] - uw_strikes[i] for i in range(len(uw_strikes)-1)]
+            # Use the minimum interval (most granular)
+            strike_interval = min(intervals) if intervals else 1
+            # Sanity check - interval should be reasonable (0.5 to 10)
+            if strike_interval < 0.5 or strike_interval > 10:
+                strike_interval = 1
         else:
+            # Fallback: use $1 for most liquid symbols
             strike_interval = 1
 
         # Round spot to nearest strike
         rounded_spot = round(spot_price / strike_interval) * strike_interval
 
         # Generate ALL strikes in range (15 below to 15 above)
-        # This ensures continuous strike list even if UW has no activity for some strikes
         strike_pressure = {}
         total_call = 0
         total_put = 0
-
-        # Convert UW data keys to float for lookup
-        uw_data = {}
-        for strike_str, data in flow_by_strike.items():
-            uw_data[float(strike_str)] = data
 
         # Generate all 31 strikes (15 below + spot + 15 above)
         for i in range(-STRIKES_BELOW, STRIKES_ABOVE + 1):
