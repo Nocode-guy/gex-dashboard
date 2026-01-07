@@ -2271,18 +2271,14 @@ async function fetchFlowData(symbol, showLoading = true) {
     }
 
     try {
-        // Use REAL-TIME endpoint from Unusual Whales
-        let data;
-        try {
-            data = await fetchAPI(`/flow/${symbol}/realtime`);
-            console.log(`[Flow] Using real-time data: ${data.data_source || 'unusual_whales'}`);
-        } catch (realtimeError) {
-            // Fallback to regular endpoint
-            const spotPrice = currentData?.spot_price || 100;
-            const strikeInterval = spotPrice > 1000 ? 5 : 1;
-            const strikeRange = 40 * strikeInterval;
-            data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
-        }
+        // Use regular endpoint for Flow tab (shows more strikes)
+        // Realtime only shows strikes with activity, regular shows full range
+        const spotPrice = currentData?.spot_price || 100;
+        const strikeInterval = spotPrice > 1000 ? 5 : 1;
+        const strikeRange = 50 * strikeInterval;  // Wide range for more strikes
+
+        const data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
+        console.log(`[Flow] Loaded ${Object.keys(data.strike_pressure || {}).length} strikes`);
 
         flowData = data;
         renderFlowData(data);
@@ -2402,9 +2398,9 @@ function renderPressureBars(strikePressure, spotPrice) {
         return;
     }
 
-    // Limit to 30 strikes centered on spot price (15 above, 15 below)
-    const STRIKES_ABOVE = 15;
-    const STRIKES_BELOW = 15;
+    // Show 50 strikes centered on spot price (25 above, 25 below)
+    const STRIKES_ABOVE = 25;
+    const STRIKES_BELOW = 25;
 
     // Find the strike closest to spot price
     let closestIdx = 0;
