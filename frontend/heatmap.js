@@ -2271,14 +2271,9 @@ async function fetchFlowData(symbol, showLoading = true) {
     }
 
     try {
-        // Use regular endpoint for Flow tab (shows more strikes)
-        // Realtime only shows strikes with activity, regular shows full range
-        const spotPrice = currentData?.spot_price || 100;
-        const strikeInterval = spotPrice > 1000 ? 5 : 1;
-        const strikeRange = 50 * strikeInterval;  // Wide range for more strikes
-
-        const data = await fetchAPI(`/flow/${symbol}?strike_range=${strikeRange}`);
-        console.log(`[Flow] Loaded ${Object.keys(data.strike_pressure || {}).length} strikes`);
+        // Use Unusual Whales realtime endpoint for Flow tab
+        const data = await fetchAPI(`/flow/${symbol}/realtime`);
+        console.log(`[Flow] Loaded ${Object.keys(data.strike_pressure || {}).length} strikes (Unusual Whales)`);
 
         flowData = data;
         renderFlowData(data);
@@ -2448,8 +2443,10 @@ function renderPressureBars(strikePressure, spotPrice) {
         const callWidth = maxPremium > 0 ? ((s.call_premium || 0) / maxPremium) * 100 : 0;
         const putWidth = maxPremium > 0 ? ((s.put_premium || 0) / maxPremium) * 100 : 0;
 
-        // Pressure percentage styling
-        const pct = s.pressure_pct || 0;
+        // Pressure percentage styling (calculate if not provided)
+        const totalPrem = (s.call_premium || 0) + (s.put_premium || 0);
+        const pct = s.pressure_pct !== undefined ? s.pressure_pct :
+            (totalPrem > 0 ? ((s.call_premium - s.put_premium) / totalPrem) * 100 : 0);
         const pctClass = pct > 20 ? 'bullish' : pct < -20 ? 'bearish' : 'neutral';
 
         return `
