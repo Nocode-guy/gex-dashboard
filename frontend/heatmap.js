@@ -1184,6 +1184,8 @@ function setupChartModeTabs() {
                     // Then fetch and render volume data
                     if (currentSymbol) {
                         fetchAndRenderVolumeByStrike(currentSymbol);
+                        // Ensure auto-refresh is started
+                        startVolumeAutoRefresh();
                     }
 
                     // Setup resize observer for volume panel
@@ -1977,7 +1979,7 @@ function setupWaveTimeframeButtons() {
 
 // Volume auto-refresh interval
 let volumeRefreshInterval = null;
-const VOLUME_REFRESH_MS = 5000;  // Refresh every 5 seconds for real-time
+const VOLUME_REFRESH_MS = 3000;  // Refresh every 3 seconds for real-time
 
 // Start volume auto-refresh
 function startVolumeAutoRefresh() {
