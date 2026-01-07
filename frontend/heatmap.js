@@ -2398,9 +2398,9 @@ function renderPressureBars(strikePressure, spotPrice) {
         return;
     }
 
-    // Show 50 strikes centered on spot price (25 above, 25 below)
-    const STRIKES_ABOVE = 25;
-    const STRIKES_BELOW = 25;
+    // Show 30 strikes centered on spot price (15 above, 15 below)
+    const STRIKES_ABOVE = 15;
+    const STRIKES_BELOW = 15;
 
     // Find the strike closest to spot price
     let closestIdx = 0;
