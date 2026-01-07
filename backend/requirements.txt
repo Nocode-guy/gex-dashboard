@@ -23,6 +23,9 @@ slowapi>=0.1.9
 # HTTP client for Tradier API
 httpx>=0.26.0
 
+# Async HTTP client for Unusual Whales API
+aiohttp>=3.9.0
+
 # Yahoo Finance (FREE - no API key needed)
 yfinance>=0.2.36
 
