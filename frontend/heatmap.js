@@ -6052,6 +6052,15 @@ function restoreUIState() {
         btn.classList.toggle('active', parseInt(btn.dataset.interval) === refreshInterval);
     });
 
+    // Restore refresh interval dropdown (sync button text and active state)
+    const selectBtn = document.getElementById('btnIntervalSelect');
+    if (selectBtn) {
+        selectBtn.textContent = `${refreshInterval}m ▾`;
+    }
+    document.querySelectorAll('.interval-option').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.interval) === refreshInterval);
+    });
+
     console.log('Restored state:', { currentSymbol, currentView, expirationMode, viewMode, refreshInterval });
 }
 
