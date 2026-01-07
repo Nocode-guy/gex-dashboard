@@ -358,11 +358,14 @@ class UnusualWhalesClient:
 
             ticks = []
             for item in data.get("data", []):
+                # UW API uses net_call_premium/net_put_premium (as strings)
+                call_prem = float(item.get("net_call_premium") or item.get("call_premium") or 0)
+                put_prem = float(item.get("net_put_premium") or item.get("put_premium") or 0)
                 ticks.append({
-                    "timestamp": item.get("date") or item.get("timestamp"),
-                    "call_premium": float(item.get("call_premium", 0)),
-                    "put_premium": float(item.get("put_premium", 0)),
-                    "net_premium": float(item.get("net_premium", 0)),
+                    "timestamp": item.get("tape_time") or item.get("date") or item.get("timestamp"),
+                    "call_premium": call_prem,
+                    "put_premium": put_prem,
+                    "net_premium": call_prem - put_prem,
                     "call_volume": int(item.get("call_volume", 0)),
                     "put_volume": int(item.get("put_volume", 0)),
                     "call_volume_ask": int(item.get("call_volume_ask_side", 0)),
