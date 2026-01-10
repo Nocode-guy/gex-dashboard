@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query, Cookie, Response, Request
+from fastapi import FastAPI, HTTPException, Query, Cookie, Response, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -59,10 +59,27 @@ except ImportError:
 # New auth system
 try:
     from auth.routes import router as auth_router, user_router, admin_router, setup_router
+    from auth.security import get_current_user, require_auth, require_admin
     NEW_AUTH_AVAILABLE = True
 except ImportError as e:
     NEW_AUTH_AVAILABLE = False
+    get_current_user = None
+    require_auth = None
+    require_admin = None
     print(f"[WARNING] New auth module not available: {e}")
+
+# AI usage tracking (PostgreSQL)
+try:
+    from db_postgres import (
+        save_chat_message, get_chat_history, cleanup_old_chats,
+        get_user_token_limit, update_user_token_usage, check_user_token_limit,
+        log_ai_usage, get_user_usage_report, get_all_users_usage_report,
+        set_user_token_limit, reset_monthly_usage_if_new_month
+    )
+    AI_TRACKING_AVAILABLE = True
+except ImportError:
+    AI_TRACKING_AVAILABLE = False
+    print("[WARNING] AI usage tracking not available (db_postgres not loaded)")
 
 # Massive (Polygon) options flow client
 try:
@@ -75,6 +92,23 @@ except ImportError as e:
 
 # Live options trades streaming disabled (requires Polygon WebSocket plan)
 OPTIONS_WS_AVAILABLE = False
+
+# OpenAI for AI trading analysis
+try:
+    from openai import OpenAI
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+    if OPENAI_API_KEY:
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        OPENAI_AVAILABLE = True
+        print("[OK] OpenAI client available")
+    else:
+        openai_client = None
+        OPENAI_AVAILABLE = False
+        print("[WARNING] OPENAI_API_KEY not set - AI analysis disabled")
+except ImportError:
+    openai_client = None
+    OPENAI_AVAILABLE = False
+    print("[WARNING] openai package not installed - AI analysis disabled")
 
 
 # =============================================================================
@@ -538,6 +572,9 @@ class RefreshManager:
                 net_dex=result.net_dex
             )
 
+            # Check for big price moves
+            regime_tracker.check_big_move(symbol, result.spot_price)
+
             cache.set(symbol, result)
 
             # Update intraday baseline (stores first snapshot of the day)
@@ -685,6 +722,42 @@ refresh_manager = RefreshManager()
 
 
 # =============================================================================
+# BIG MOVER SCANNER
+# =============================================================================
+async def run_big_mover_scanner():
+    """
+    Background task that scans top symbols for big price moves.
+    Uses Tradier API for fast quote fetching.
+    """
+    await asyncio.sleep(30)  # Wait 30s after startup before first scan
+
+    while True:
+        try:
+            # Get Tradier client for fast quotes
+            if TRADIER_AVAILABLE:
+                from tradier_client import get_tradier_client
+                tradier = get_tradier_client()
+
+                # Scan all symbols in the SCAN_SYMBOLS list
+                for symbol in regime_tracker.SCAN_SYMBOLS:
+                    try:
+                        # Get current price from Tradier (fast)
+                        price = await tradier.get_spot_price(symbol)
+                        if price and price > 0:
+                            # Check for big move
+                            regime_tracker.check_big_move(symbol, price)
+                    except Exception as e:
+                        pass  # Silently skip failed symbols
+
+                print(f"[BigMover] Scanned {len(regime_tracker.SCAN_SYMBOLS)} symbols")
+
+        except Exception as e:
+            print(f"[BigMover] Scanner error: {e}")
+
+        await asyncio.sleep(60)  # Scan every 60 seconds
+
+
+# =============================================================================
 # FASTAPI APP
 # =============================================================================
 @asynccontextmanager
@@ -713,10 +786,70 @@ async def lifespan(app: FastAPI):
     await init_flow_service()
     print("[OK] Flow Service started (WAVE snapshots every 10s)")
 
+    # Initialize Alert Service (monitors for trading opportunities)
+    from alert_service import init_alert_service, get_alert_service
+    from massive_gex_provider import get_massive_provider
+    flow_svc = get_flow_service()
+    gex_provider = get_massive_provider()
+    alert_svc = init_alert_service(gex_provider=gex_provider, flow_service=flow_svc)
+    asyncio.create_task(alert_svc.start())
+    print("[OK] Alert Service started (monitoring top 30 symbols)")
+
+    # Start Big Mover Scanner
+    asyncio.create_task(run_big_mover_scanner())
+    print("[OK] Big Mover Scanner started (checking top 30 symbols every 60s)")
+
+    # Initialize trading journal tables
+    try:
+        from db_postgres import init_journal_tables
+        await init_journal_tables()
+    except Exception as e:
+        print(f"[WARNING] Journal tables init: {e}")
+
+    # Start AI usage tracking background tasks
+    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+        async def weekly_chat_cleanup():
+            """Delete chat history older than 7 days (runs daily at midnight)."""
+            while True:
+                try:
+                    await asyncio.sleep(86400)  # Wait 24 hours
+                    deleted = await cleanup_old_chats(days=7)
+                    print(f"[AI Cleanup] Deleted {deleted} old chat messages")
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    print(f"[AI Cleanup] Error: {e}")
+
+        async def monthly_usage_reset():
+            """Reset monthly token usage on the 1st of each month (checks hourly)."""
+            while True:
+                try:
+                    await asyncio.sleep(3600)  # Check every hour
+                    reset_count = await reset_monthly_usage_if_new_month()
+                    if reset_count > 0:
+                        print(f"[AI Reset] Reset monthly usage for {reset_count} users")
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    print(f"[AI Reset] Error: {e}")
+
+        asyncio.create_task(weekly_chat_cleanup())
+        asyncio.create_task(monthly_usage_reset())
+        print("[OK] AI usage tracking tasks started (cleanup & monthly reset)")
+
     yield
 
     # Shutdown
     refresh_manager.stop()
+
+    # Stop Alert Service
+    try:
+        from alert_service import get_alert_service
+        alert_svc = get_alert_service()
+        if alert_svc:
+            alert_svc.stop()
+    except Exception as e:
+        print(f"[WARNING] Alert service shutdown error: {e}")
 
     # Stop Flow Service
     try:
@@ -1949,6 +2082,176 @@ async def get_volume_live(symbol: str, source: str = Query("polygon", descriptio
         raise HTTPException(status_code=500, detail=f"Error fetching live volume: {str(e)}")
 
 
+@app.get("/flow/{symbol}/signals")
+async def get_confluence_signals(symbol: str):
+    """
+    Generate LONG/SHORT signals based on GEX + Volume confluence.
+
+    LONG signal: Bullish volume flow + price near positive GEX support
+    SHORT signal: Bearish volume flow + price near negative GEX resistance
+    """
+    symbol = symbol.upper()
+
+    try:
+        # Get GEX data
+        gex_data = cache.get(symbol)
+        if not gex_data:
+            raise HTTPException(status_code=404, detail=f"No GEX data for {symbol}")
+
+        spot_price = gex_data.spot_price
+
+        # Get volume data
+        volume_response = await get_volume_live(symbol, source="polygon")
+        volume_data = volume_response.get("strike_pressure", {})
+        nearest_strike = volume_response.get("nearest_strike", 0)
+
+        # Get GEX key levels from nodes
+        king_strike = gex_data.king_strike if hasattr(gex_data, 'king_strike') else 0
+        king_gex = gex_data.king_gex if hasattr(gex_data, 'king_gex') else 0
+
+        # Find support/resistance from zones
+        support_level = 0
+        resistance_level = 0
+        magnet_level = king_strike  # King often acts as magnet
+
+        # Get zones for detailed GEX at each strike
+        zones = {}
+        if gex_data.zones:
+            for z in gex_data.zones:
+                zones[z.strike] = z.gex
+                # Find nearest support (positive GEX below spot)
+                if z.gex > 0 and z.strike < spot_price:
+                    if support_level == 0 or z.strike > support_level:
+                        support_level = z.strike
+                # Find nearest resistance (positive GEX above spot)
+                if z.gex > 0 and z.strike > spot_price:
+                    if resistance_level == 0 or z.strike < resistance_level:
+                        resistance_level = z.strike
+
+        signals = []
+
+        # Analyze each strike in volume data
+        for strike_str, vol in volume_data.items():
+            strike = float(strike_str)
+            call_vol = vol.get("call_volume", 0)
+            put_vol = vol.get("put_volume", 0)
+            net = vol.get("net_premium", 0)
+
+            # Skip if no meaningful volume
+            total_vol = call_vol + put_vol
+            if total_vol < 1000:
+                continue
+
+            # Calculate flow bias percentage
+            if total_vol > 0:
+                flow_pct = (call_vol - put_vol) / total_vol * 100
+            else:
+                flow_pct = 0
+
+            # Get GEX at this strike
+            strike_gex = zones.get(strike, 0)
+
+            # Determine signal
+            signal = None
+            confidence = 0
+            reason = []
+
+            # LONG conditions
+            if flow_pct > 10:  # Calls winning by 10%+
+                reason.append(f"Bullish flow ({flow_pct:+.0f}%)")
+                confidence += 30
+
+                # Check GEX confluence
+                if strike_gex > 0:
+                    reason.append(f"Positive GEX (+${abs(strike_gex)/1e6:.0f}M)")
+                    confidence += 30
+
+                # Near support level
+                if support_level and abs(strike - support_level) <= 2:
+                    reason.append(f"Near support ({support_level})")
+                    confidence += 20
+
+                # Price below this strike (support below)
+                if strike < spot_price:
+                    reason.append("Support below price")
+                    confidence += 10
+
+                if confidence >= 50:
+                    signal = "LONG"
+
+            # SHORT conditions
+            elif flow_pct < -10:  # Puts winning by 10%+
+                reason.append(f"Bearish flow ({flow_pct:+.0f}%)")
+                confidence += 30
+
+                # Check GEX confluence (negative GEX = acceleration zone)
+                if strike_gex < 0:
+                    reason.append(f"Negative GEX (-${abs(strike_gex)/1e6:.0f}M)")
+                    confidence += 30
+
+                # Near resistance/magnet level
+                if resistance_level and abs(strike - resistance_level) <= 2:
+                    reason.append(f"Near resistance ({resistance_level})")
+                    confidence += 20
+                if magnet_level and abs(strike - magnet_level) <= 2:
+                    reason.append(f"Near magnet ({magnet_level})")
+                    confidence += 15
+
+                # Price above this strike (resistance above)
+                if strike > spot_price:
+                    reason.append("Resistance above price")
+                    confidence += 10
+
+                if confidence >= 50:
+                    signal = "SHORT"
+
+            if signal:
+                signals.append({
+                    "strike": strike,
+                    "signal": signal,
+                    "confidence": min(confidence, 100),
+                    "flow_pct": round(flow_pct, 1),
+                    "call_volume": call_vol,
+                    "put_volume": put_vol,
+                    "gex": strike_gex,
+                    "reasons": reason,
+                })
+
+        # Sort by confidence
+        signals.sort(key=lambda x: x["confidence"], reverse=True)
+
+        # Determine overall bias
+        long_signals = [s for s in signals if s["signal"] == "LONG"]
+        short_signals = [s for s in signals if s["signal"] == "SHORT"]
+
+        if long_signals and not short_signals:
+            overall = "BULLISH"
+        elif short_signals and not long_signals:
+            overall = "BEARISH"
+        elif long_signals and short_signals:
+            overall = "MIXED"
+        else:
+            overall = "NEUTRAL"
+
+        return {
+            "symbol": symbol,
+            "spot_price": spot_price,
+            "timestamp": datetime.now().isoformat(),
+            "overall_bias": overall,
+            "signals": signals[:5],  # Top 5 signals
+            "gex_levels": {
+                "support": support_level,
+                "resistance": resistance_level,
+                "magnet": magnet_level,
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating signals: {str(e)}")
+
+
 @app.get("/flow/{symbol}/wave-realtime")
 async def get_wave_realtime(symbol: str):
     """
@@ -2009,6 +2312,770 @@ async def get_wave_realtime(symbol: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching WAVE data: {str(e)}")
+
+
+# =============================================================================
+# ALERTS ENDPOINTS
+# =============================================================================
+
+@app.get("/alerts")
+async def get_alerts(
+    limit: int = Query(20, description="Number of alerts to return"),
+    include_dismissed: bool = Query(False, description="Include dismissed alerts")
+):
+    """
+    Get recent trading alerts.
+    Monitors top 30 symbols for:
+    - GEX regime changes (0γ flip crosses)
+    - Level breaks (support/resistance)
+    - Big moves (1%+ in short time)
+    - Flow flips (put/call ratio reversal)
+    - Acceleration zone entries
+    """
+    from alert_service import get_alert_service
+
+    service = get_alert_service()
+    if not service:
+        return {
+            "alerts": [],
+            "total": 0,
+            "message": "Alert service not initialized"
+        }
+
+    alerts = service.get_alerts(limit=limit, include_dismissed=include_dismissed)
+
+    return {
+        "alerts": alerts,
+        "total": len(alerts),
+        "monitored_symbols": service.MONITORED_SYMBOLS,
+        "check_interval_sec": service.check_interval
+    }
+
+
+@app.post("/alerts/{alert_id}/dismiss")
+async def dismiss_alert(alert_id: str):
+    """Dismiss an alert."""
+    from alert_service import get_alert_service
+
+    service = get_alert_service()
+    if not service:
+        raise HTTPException(status_code=503, detail="Alert service not available")
+
+    service.dismiss_alert(alert_id)
+    return {"status": "ok", "dismissed": alert_id}
+
+
+@app.delete("/alerts")
+async def clear_alerts(symbol: Optional[str] = Query(None, description="Clear alerts for specific symbol")):
+    """Clear all alerts or alerts for a specific symbol."""
+    from alert_service import get_alert_service
+
+    service = get_alert_service()
+    if not service:
+        raise HTTPException(status_code=503, detail="Alert service not available")
+
+    service.clear_alerts(symbol)
+    return {"status": "ok", "cleared": symbol or "all"}
+
+
+# =============================================================================
+# AI TRADING ANALYSIS ENDPOINTS
+# =============================================================================
+
+# System prompt for trading analysis
+AI_TRADING_SYSTEM_PROMPT = """You are an expert options trader and gamma exposure (GEX) analyst. Analyze the provided market data and give a clear, actionable trading read.
+
+Your analysis should follow this structure:
+1. **Big Picture (Gamma + Structure)** - Key levels (King/Magnet, Accel, Support/Resistance)
+2. **Price Action** - Current price behavior, consolidation vs trend, MA alignment
+3. **Flow Analysis** - Call vs Put premium, net sentiment, WAVE indicator interpretation
+4. **GEX Table Interpretation** - Key strikes with high GEX, walls, low-friction zones
+5. **Scenarios (Playbook)** - Bullish continuation (with triggers), Pullback zones, Bearish invalidation
+
+Key concepts:
+- King/Magnet: Highest positive GEX strike - price gravitates here, acts as resistance when above, support when below
+- Zero Gamma (0γ): Level where total GEX flips sign. Above = dealers hedge WITH price (trending), Below = dealers hedge AGAINST (mean-reverting)
+- Accelerator: Large negative GEX zone - price accelerates when it breaks through
+- Call Wall: Strike where dealers sold calls - resistance
+- Put Wall: Strike where dealers sold puts - support
+
+Be direct and trading-focused. No fluff. Give probability-weighted scenarios."""
+
+
+class ChatMessage(BaseModel):
+    """Chat message for AI conversation."""
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """Chat request with conversation history."""
+    symbol: str
+    message: str
+    history: Optional[List[ChatMessage]] = None
+
+
+@app.get("/ai/analyze/{symbol}")
+async def analyze_symbol(
+    symbol: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """
+    Get AI-powered trading analysis for a symbol.
+    Gathers all GEX, flow, and price data and sends to OpenAI for analysis.
+    Requires authentication. Tracks token usage per user.
+    """
+    if not OPENAI_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis not available. Set OPENAI_API_KEY environment variable."
+        )
+
+    # Check authentication
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required for AI analysis")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+
+    # Check token limit
+    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+        limit_info = await check_user_token_limit(user_id)
+        if limit_info.get('exceeded'):
+            raise HTTPException(
+                status_code=429,
+                detail=f"Monthly token limit exceeded. Used: {limit_info['tokens_used_this_month']:,} / {limit_info['monthly_token_limit']:,}"
+            )
+
+    symbol = symbol.upper()
+
+    # Gather all data for the symbol
+    try:
+        # Get GEX data from cache
+        gex_data = cache.get(symbol)
+        if not gex_data:
+            # Try to refresh
+            await refresh_manager.refresh_symbol(symbol)
+            gex_data = cache.get(symbol)
+
+        if not gex_data:
+            raise HTTPException(status_code=404, detail=f"No data available for {symbol}")
+
+        # Get flow data
+        flow_data = None
+        if MASSIVE_AVAILABLE:
+            try:
+                client = get_massive_client()
+                flow_summary = await client.get_flow_summary(
+                    symbol=symbol,
+                    spot_price=gex_data.spot_price,
+                    strike_range=20
+                )
+                flow_data = flow_summary.to_dict()
+            except Exception as e:
+                print(f"[AI] Flow data error: {e}")
+
+        # Get regime info
+        regime = regime_tracker.current_regime
+
+        # Format data for AI prompt
+        data_context = f"""
+## {symbol} Market Data (Real-time)
+
+### Current Price
+- Spot: ${gex_data.spot_price:.2f}
+- Timestamp: {gex_data.timestamp.strftime("%Y-%m-%d %H:%M:%S ET")}
+
+### Key GEX Levels
+- King/Magnet (highest +GEX): ${gex_data.king_node.strike if gex_data.king_node else 'N/A'}
+- Zero Gamma (0γ): ${gex_data.zero_gamma_level:.2f}
+- Net GEX: ${gex_data.net_gex:,.0f}
+- Price vs 0γ: {"ABOVE (trending regime)" if gex_data.spot_price > gex_data.zero_gamma_level else "BELOW (mean-reverting regime)"}
+
+### Top GEX Strikes
+"""
+        # Add top strikes by GEX
+        sorted_strikes = sorted(gex_data.zones, key=lambda z: abs(z.gex), reverse=True)[:10]
+        for zone in sorted_strikes:
+            gex_sign = "+" if zone.gex > 0 else ""
+            data_context += f"- ${zone.strike}: {gex_sign}{zone.gex/1e6:.1f}M GEX\n"
+
+        # Add flow data if available
+        if flow_data:
+            data_context += f"""
+### Options Flow
+- Call Premium: ${flow_data.get('total_call_premium', 0)/1e6:.2f}M
+- Put Premium: ${flow_data.get('total_put_premium', 0)/1e6:.2f}M
+- Net: ${(flow_data.get('total_call_premium', 0) - flow_data.get('total_put_premium', 0))/1e6:.2f}M ({"bullish" if flow_data.get('total_call_premium', 0) > flow_data.get('total_put_premium', 0) else "bearish"})
+- Put/Call Ratio: {flow_data.get('put_call_ratio', 0):.2f}
+"""
+            # Add pressure by strike
+            if flow_data.get('pressure_by_strike'):
+                data_context += "\n### Flow by Strike (Top 5)\n"
+                pressure_sorted = sorted(
+                    flow_data['pressure_by_strike'].items(),
+                    key=lambda x: abs(x[1].get('net_pressure', 0)),
+                    reverse=True
+                )[:5]
+                for strike, pressure in pressure_sorted:
+                    net = pressure.get('net_pressure', 0)
+                    data_context += f"- ${strike}: {'📈' if net > 0 else '📉'} {'+' if net > 0 else ''}{net/1e3:.1f}K net\n"
+
+        # Add regime info
+        if regime:
+            data_context += f"""
+### Market Regime
+- Current Regime: {regime.regime.value}
+- VIX: {regime.vix_level:.2f}
+- GEX Reliability: {regime.gex_reliability}
+"""
+
+        # Call OpenAI (GPT-5-mini uses Responses API)
+        response = openai_client.responses.create(
+            model="gpt-5-mini",
+            instructions=AI_TRADING_SYSTEM_PROMPT,
+            input=f"Analyze {symbol} based on this data:\n{data_context}",
+            max_output_tokens=4000
+        )
+
+        analysis = response.output_text or ""
+
+        # Track token usage
+        input_tokens = response.usage.input_tokens if hasattr(response, 'usage') else 0
+        output_tokens = response.usage.output_tokens if hasattr(response, 'usage') else 0
+        total_tokens = input_tokens + output_tokens
+
+        if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+            # Log usage for billing
+            await log_ai_usage(user_id, 'analyze', symbol, input_tokens, output_tokens)
+            # Update user's monthly token count
+            await update_user_token_usage(user_id, total_tokens)
+
+        print(f"[AI] Generated analysis for {symbol}: {len(analysis)} chars, {total_tokens} tokens (user: {current_user.get('email', 'unknown')})")
+
+        return {
+            "symbol": symbol,
+            "analysis": analysis,
+            "timestamp": datetime.now().isoformat(),
+            "spot_price": gex_data.spot_price,
+            "king_strike": gex_data.king_node.strike if gex_data.king_node else None,
+            "zero_gamma": gex_data.zero_gamma_level,
+            "model": "gpt-5-mini",
+            "tokens_used": total_tokens
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis error: {str(e)}")
+
+
+@app.post("/ai/chat")
+async def chat_with_ai(
+    request: ChatRequest,
+    http_request: Request,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """
+    Chat with AI about a specific symbol.
+    Maintains conversation context in database for follow-up questions.
+    Requires authentication. Tracks token usage per user.
+    """
+    if not OPENAI_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="AI chat not available. Set OPENAI_API_KEY environment variable."
+        )
+
+    # Check authentication
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required for AI chat")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+
+    # Check token limit
+    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+        limit_info = await check_user_token_limit(user_id)
+        if limit_info.get('exceeded'):
+            raise HTTPException(
+                status_code=429,
+                detail=f"Monthly token limit exceeded. Used: {limit_info['tokens_used_this_month']:,} / {limit_info['monthly_token_limit']:,}"
+            )
+
+    symbol = request.symbol.upper()
+
+    try:
+        # Get current market data for context
+        gex_data = cache.get(symbol)
+
+        # Build market context
+        market_context = ""
+        if gex_data:
+            market_context = f"""
+Current {symbol} data:
+- Price: ${gex_data.spot_price:.2f}
+- King: ${gex_data.king_node.strike if gex_data.king_node else 'N/A'}
+- Zero Gamma: ${gex_data.zero_gamma_level:.2f}
+- Net GEX: ${gex_data.net_gex:,.0f}
+- Above/Below 0γ: {"ABOVE" if gex_data.spot_price > gex_data.zero_gamma_level else "BELOW"}
+"""
+
+        # Load chat history from database (instead of request.history)
+        conversation = ""
+        if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+            db_history = await get_chat_history(user_id, symbol, limit=20)
+            for msg in db_history:
+                role_label = "User" if msg['role'] == "user" else "Assistant"
+                conversation += f"{role_label}: {msg['content']}\n\n"
+
+            # Save user message to DB
+            await save_chat_message(user_id, symbol, 'user', request.message, 0)
+        else:
+            # Fallback to request.history if DB not available
+            if request.history:
+                for msg in request.history:
+                    role_label = "User" if msg.role == "user" else "Assistant"
+                    conversation += f"{role_label}: {msg.content}\n\n"
+
+        conversation += f"User: {request.message}"
+
+        # Call OpenAI (GPT-5-mini uses Responses API)
+        response = openai_client.responses.create(
+            model="gpt-5-mini",
+            instructions=AI_TRADING_SYSTEM_PROMPT + f"\n\n{market_context}",
+            input=conversation,
+            max_output_tokens=2000
+        )
+
+        reply = response.output_text or ""
+
+        # If empty, try to extract from output array
+        if not reply and hasattr(response, 'output'):
+            for item in response.output:
+                if hasattr(item, 'content'):
+                    for content in item.content:
+                        if hasattr(content, 'text'):
+                            reply += content.text
+
+        # Track token usage
+        input_tokens = response.usage.input_tokens if hasattr(response, 'usage') else 0
+        output_tokens = response.usage.output_tokens if hasattr(response, 'usage') else 0
+        total_tokens = input_tokens + output_tokens
+
+        if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+            # Save assistant response to DB
+            await save_chat_message(user_id, symbol, 'assistant', reply, output_tokens)
+            # Log usage for billing
+            await log_ai_usage(user_id, 'chat', symbol, input_tokens, output_tokens)
+            # Update user's monthly token count
+            await update_user_token_usage(user_id, total_tokens)
+
+        # Log for debugging
+        if not reply:
+            print(f"[AI Chat] WARNING: Empty reply for {symbol}. Status: {response.status if hasattr(response, 'status') else 'unknown'}")
+        else:
+            print(f"[AI Chat] Generated reply for {symbol}: {len(reply)} chars, {total_tokens} tokens (user: {current_user.get('email', 'unknown')})")
+
+        return {
+            "symbol": symbol,
+            "reply": reply,
+            "timestamp": datetime.now().isoformat(),
+            "tokens_used": total_tokens
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
+
+
+@app.get("/ai/status")
+async def get_ai_status():
+    """Check if AI analysis is available."""
+    return {
+        "available": OPENAI_AVAILABLE,
+        "model": "gpt-5-mini" if OPENAI_AVAILABLE else None,
+        "message": "AI analysis ready" if OPENAI_AVAILABLE else "Set OPENAI_API_KEY to enable"
+    }
+
+
+# =============================================================================
+# ADMIN USAGE TRACKING ENDPOINTS
+# =============================================================================
+@app.get("/admin/users/usage")
+async def get_all_users_usage(
+    month: str = Query(None, description="Month in YYYY-MM format, defaults to current month"),
+    http_request: Request = None,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """
+    Get all users' token usage for invoicing (admin only).
+    Returns monthly usage stats for billing purposes.
+    """
+    # Check admin privileges
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not current_user.get('is_admin'):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+
+    if not AI_TRACKING_AVAILABLE or not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Usage tracking not available")
+
+    try:
+        report = await get_all_users_usage_report(month)
+        return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get usage report: {str(e)}")
+
+
+@app.get("/admin/users/{user_id}/usage")
+async def get_user_usage(
+    user_id: str,
+    start_date: str = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: str = Query(None, description="End date YYYY-MM-DD"),
+    http_request: Request = None,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """
+    Get specific user's detailed usage (admin only).
+    """
+    # Check admin privileges
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not current_user.get('is_admin'):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+
+    if not AI_TRACKING_AVAILABLE or not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Usage tracking not available")
+
+    try:
+        report = await get_user_usage_report(user_id, start_date, end_date)
+        return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get user usage: {str(e)}")
+
+
+@app.put("/admin/users/{user_id}/token-limit")
+async def update_user_token_limit(
+    user_id: str,
+    limit: int = Query(..., description="New monthly token limit"),
+    http_request: Request = None,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """
+    Set a user's monthly token limit (admin only).
+    """
+    # Check admin privileges
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not current_user.get('is_admin'):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+
+    if not AI_TRACKING_AVAILABLE or not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Usage tracking not available")
+
+    if limit < 0:
+        raise HTTPException(status_code=400, detail="Token limit must be non-negative")
+
+    try:
+        result = await set_user_token_limit(user_id, limit)
+        return {"success": True, "user_id": user_id, "new_limit": limit, **result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set token limit: {str(e)}")
+
+
+@app.get("/admin/users/{user_id}/chat-history")
+async def get_user_chat_history(
+    user_id: str,
+    symbol: str = Query(None, description="Filter by symbol"),
+    limit: int = Query(100, description="Max messages to return"),
+    http_request: Request = None,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """
+    Get a user's chat history (admin only).
+    """
+    # Check admin privileges
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not current_user.get('is_admin'):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+
+    if not AI_TRACKING_AVAILABLE or not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chat history not available")
+
+    try:
+        history = await get_chat_history(user_id, symbol, limit)
+        return {"user_id": user_id, "symbol": symbol, "messages": history, "count": len(history)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get chat history: {str(e)}")
+
+
+# =============================================================================
+# TRADING JOURNAL ENDPOINTS
+# =============================================================================
+
+# Import journal functions
+try:
+    from db_postgres import (
+        init_journal_tables, create_trade, get_trades, get_trade_by_id,
+        update_trade, delete_trade, add_trade_note, delete_trade_note,
+        add_trade_tag, remove_trade_tag, get_user_tags,
+        get_calendar_data, get_trading_analytics, import_trades_from_csv
+    )
+    JOURNAL_AVAILABLE = True
+except ImportError:
+    JOURNAL_AVAILABLE = False
+
+
+class TradeCreate(BaseModel):
+    symbol: str
+    side: str  # 'long' or 'short'
+    quantity: float
+    entry_price: float
+    entry_time: str
+    exit_price: Optional[float] = None
+    exit_time: Optional[str] = None
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+class TradeUpdate(BaseModel):
+    exit_price: Optional[float] = None
+    exit_time: Optional[str] = None
+
+
+class NoteCreate(BaseModel):
+    content: str
+
+
+class CSVImport(BaseModel):
+    trades: List[dict]
+
+
+@app.get("/journal/trades")
+async def list_trades(
+    symbol: str = Query(None),
+    status: str = Query(None),
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    limit: int = Query(100),
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Get user's trades with optional filters"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if not JOURNAL_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Trading journal not available")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    trades = await get_trades(user_id, symbol, status, start_date, end_date, limit)
+    return {"trades": trades, "count": len(trades)}
+
+
+@app.post("/journal/trades")
+async def create_new_trade(
+    trade: TradeCreate,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Create a new trade entry"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if not JOURNAL_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Trading journal not available")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    result = await create_trade(
+        user_id=user_id,
+        symbol=trade.symbol,
+        side=trade.side,
+        quantity=trade.quantity,
+        entry_price=trade.entry_price,
+        entry_time=trade.entry_time,
+        exit_price=trade.exit_price,
+        exit_time=trade.exit_time,
+        notes=trade.notes,
+        tags=trade.tags
+    )
+
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+
+@app.get("/journal/trades/{trade_id}")
+async def get_single_trade(
+    trade_id: str,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Get a single trade by ID"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    trade = await get_trade_by_id(user_id, trade_id)
+
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    return trade
+
+
+@app.put("/journal/trades/{trade_id}")
+async def update_existing_trade(
+    trade_id: str,
+    trade_update: TradeUpdate,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Update a trade (close position, edit details)"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    result = await update_trade(
+        user_id=user_id,
+        trade_id=trade_id,
+        exit_price=trade_update.exit_price,
+        exit_time=trade_update.exit_time
+    )
+
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+
+@app.delete("/journal/trades/{trade_id}")
+async def delete_existing_trade(
+    trade_id: str,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Delete a trade"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    result = await delete_trade(user_id, trade_id)
+
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+
+@app.post("/journal/trades/{trade_id}/notes")
+async def add_note_to_trade(
+    trade_id: str,
+    note: NoteCreate,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Add a note to a trade"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    result = await add_trade_note(user_id, trade_id, note.content)
+
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+
+@app.delete("/journal/notes/{note_id}")
+async def delete_note(
+    note_id: str,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Delete a note"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    return await delete_trade_note(user_id, note_id)
+
+
+@app.post("/journal/trades/{trade_id}/tags/{tag}")
+async def add_tag_to_trade(
+    trade_id: str,
+    tag: str,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Add a tag to a trade"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    return await add_trade_tag(user_id, trade_id, tag)
+
+
+@app.delete("/journal/trades/{trade_id}/tags/{tag}")
+async def remove_tag_from_trade(
+    trade_id: str,
+    tag: str,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Remove a tag from a trade"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    return await remove_trade_tag(user_id, trade_id, tag)
+
+
+@app.get("/journal/tags")
+async def get_all_tags(
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Get all user's tags"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    tags = await get_user_tags(user_id)
+    return {"tags": tags}
+
+
+@app.get("/journal/calendar")
+async def get_calendar(
+    year: int = Query(...),
+    month: int = Query(...),
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Get daily P&L for calendar view"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    data = await get_calendar_data(user_id, year, month)
+    return {"year": year, "month": month, "days": data}
+
+
+@app.get("/journal/analytics")
+async def get_analytics(
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Get comprehensive trading analytics"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    analytics = await get_trading_analytics(user_id, start_date, end_date)
+    return analytics
+
+
+@app.post("/journal/trades/import")
+async def import_csv_trades(
+    data: CSVImport,
+    current_user: dict = Depends(get_current_user) if get_current_user else None
+):
+    """Import trades from CSV data"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_id = str(current_user.get('sub') or current_user.get('id'))
+    result = await import_trades_from_csv(user_id, data.trades)
+    return result
 
 
 # =============================================================================
@@ -2351,6 +3418,18 @@ if os.path.exists(FRONTEND_DIR):
         guide_path = os.path.join(FRONTEND_DIR, "trading-guide.html")
         if os.path.exists(guide_path):
             return FileResponse(guide_path)
+        return RedirectResponse(url="/app", status_code=302)
+
+    @app.get("/journal")
+    async def serve_journal(
+        refresh_token: Optional[str] = Cookie(None)
+    ):
+        """Serve the trading journal page (requires authentication in production)."""
+        # Skip auth check on localhost for development
+        pass
+        journal_path = os.path.join(FRONTEND_DIR, "journal.html")
+        if os.path.exists(journal_path):
+            return FileResponse(journal_path)
         return RedirectResponse(url="/app", status_code=302)
 
     @app.get("/admin")

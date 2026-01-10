@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GEX Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=2.8">
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -61,7 +61,14 @@
             </div>
 
             <div class="control-right">
-                <button class="btn-icon" id="btnWallsToggle" title="Put/Call Walls">📊</button>
+                <button class="btn-icon ai-btn" id="btnAI" title="AI Analysis">
+                    🤖
+                </button>
+                <button class="btn-icon alerts-btn" id="btnAlerts" title="Trading Alerts">
+                    🔔
+                    <span class="alert-badge" id="alertBadge" style="display: none;">0</span>
+                </button>
+                <button class="btn-icon" id="btnWallsToggle" title="GEX by Strike">📊</button>
                 <button class="btn-icon" id="btnCenterSpot" title="Center on Spot">◎</button>
                 <button class="btn-icon" id="btnCenterKing" title="Center on King">👑</button>
                 <button class="btn-icon" id="btnThemeToggle" title="Theme">
@@ -72,6 +79,7 @@
                     <div class="user-menu" id="userMenu">
                         <div class="user-menu-header" id="userEmail">Not signed in</div>
                         <a href="/admin" class="user-menu-item" id="adminLink" style="display:none;">Admin Dashboard</a>
+                        <a href="/journal" class="user-menu-item">Trading Journal</a>
                         <button class="user-menu-item" id="btnChangePassword">Change Password</button>
                         <button class="user-menu-item" id="btnLogout">Logout</button>
                     </div>
@@ -541,11 +549,11 @@
             </div>
         </div>
 
-        <!-- Put/Call Walls Popup -->
+        <!-- GEX by Strike Popup -->
         <div class="walls-overlay" id="wallsOverlay" style="display: none;">
             <div class="walls-popup">
                 <div class="walls-header">
-                    <h3>Put/Call Walls</h3>
+                    <h3>GEX by Strike</h3>
                     <button class="btn-close-walls" id="btnCloseWalls">&times;</button>
                 </div>
                 <div class="walls-chart" id="wallsChart">
@@ -554,6 +562,53 @@
                 <div class="walls-legend">
                     <span class="legend-item"><span class="legend-color call"></span> Call GEX</span>
                     <span class="legend-item"><span class="legend-color put"></span> Put GEX</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trading Alerts Panel -->
+        <div class="alerts-overlay" id="alertsOverlay" style="display: none;">
+            <div class="alerts-panel">
+                <div class="alerts-header">
+                    <h3>🔔 Trading Alerts</h3>
+                    <div class="alerts-controls">
+                        <button class="btn-clear-alerts" id="btnClearAlerts" title="Clear all">Clear</button>
+                        <button class="btn-close-alerts" id="btnCloseAlerts">&times;</button>
+                    </div>
+                </div>
+                <div class="alerts-status">
+                    <span class="alerts-monitoring">Monitoring <span id="alertSymbolCount">30</span> symbols</span>
+                    <span class="alerts-refresh">Updates every 30s</span>
+                </div>
+                <div class="alerts-list" id="alertsList">
+                    <div class="alerts-empty">No alerts yet. Watching for opportunities...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Analysis Panel -->
+        <div class="ai-overlay" id="aiOverlay" style="display: none;">
+            <div class="ai-panel">
+                <div class="ai-header">
+                    <h3>🤖 AI Trading Analysis</h3>
+                    <div class="ai-controls">
+                        <button class="btn-analyze" id="btnAnalyze" title="Get full analysis">Analyze</button>
+                        <button class="btn-close-ai" id="btnCloseAI">&times;</button>
+                    </div>
+                </div>
+                <div class="ai-symbol-info">
+                    <span class="ai-symbol" id="aiSymbol">SPY</span>
+                    <span class="ai-status" id="aiStatus">Ready</span>
+                </div>
+                <div class="ai-messages" id="aiMessages">
+                    <div class="ai-welcome">
+                        <p>Ask me about the current setup, levels, or trading scenarios.</p>
+                        <p>Or click <strong>Analyze</strong> for a full trading read.</p>
+                    </div>
+                </div>
+                <div class="ai-input-container">
+                    <input type="text" class="ai-input" id="aiInput" placeholder="Ask about this trade..." />
+                    <button class="btn-send-ai" id="btnSendAI">→</button>
                 </div>
             </div>
         </div>
@@ -735,6 +790,216 @@
         </div>
     </div>
 
-    <script src="/static/heatmap.js"></script>
+    <!-- What's New Popup -->
+    <div class="whats-new-overlay" id="whatsNewOverlay">
+        <div class="whats-new-modal">
+            <div class="whats-new-header">
+                <h2>🎉 What's New in GEX Dashboard</h2>
+                <button class="whats-new-close" id="closeWhatsNew">&times;</button>
+            </div>
+            <div class="whats-new-content">
+                <div class="whats-new-item">
+                    <span class="whats-new-icon">🤖</span>
+                    <div>
+                        <h3>AI-Powered Analysis</h3>
+                        <p>Get instant AI insights on any symbol. Chat with our AI about market conditions, GEX levels, and trading strategies.</p>
+                    </div>
+                </div>
+                <div class="whats-new-item">
+                    <span class="whats-new-icon">📓</span>
+                    <div>
+                        <h3>Trading Journal</h3>
+                        <p>Track your trades with our new journal. View P&L calendar, analytics, win rate, and equity curves. Import trades via CSV.</p>
+                    </div>
+                </div>
+                <div class="whats-new-item">
+                    <span class="whats-new-icon">📊</span>
+                    <div>
+                        <h3>Enhanced Chart Signals</h3>
+                        <p>New technical indicators and signals overlaid on charts. See support/resistance levels from GEX data.</p>
+                    </div>
+                </div>
+                <div class="whats-new-item">
+                    <span class="whats-new-icon">🔔</span>
+                    <div>
+                        <h3>Smart Alerts</h3>
+                        <p>Real-time alerts for big movers, unusual options flow, and GEX level breaches.</p>
+                    </div>
+                </div>
+                <div class="whats-new-item">
+                    <span class="whats-new-icon">⚡</span>
+                    <div>
+                        <h3>Real-Time OPRA Data</h3>
+                        <p>Live options data from OPRA feed via Massive/Polygon. Sub-second updates during market hours.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="whats-new-footer">
+                <label class="whats-new-checkbox">
+                    <input type="checkbox" id="dontShowAgain" checked>
+                    Don't show this again
+                </label>
+                <button class="btn-primary" id="btnGotIt">Got It!</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .whats-new-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+        .whats-new-overlay.show {
+            display: flex;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .whats-new-modal {
+            background: var(--card-bg, #1a1a2e);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 550px;
+            max-height: 85vh;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: slideUp 0.3s ease;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .whats-new-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-color, #333);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .whats-new-header h2 {
+            margin: 0;
+            font-size: 20px;
+            color: var(--text-primary, #fff);
+        }
+        .whats-new-close {
+            background: none;
+            border: none;
+            font-size: 28px;
+            color: var(--text-secondary, #888);
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        .whats-new-close:hover {
+            color: var(--text-primary, #fff);
+        }
+        .whats-new-content {
+            padding: 20px 24px;
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+        .whats-new-item {
+            display: flex;
+            gap: 16px;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border-color, #333);
+        }
+        .whats-new-item:last-child {
+            border-bottom: none;
+        }
+        .whats-new-icon {
+            font-size: 32px;
+            flex-shrink: 0;
+        }
+        .whats-new-item h3 {
+            margin: 0 0 6px 0;
+            font-size: 16px;
+            color: var(--text-primary, #fff);
+        }
+        .whats-new-item p {
+            margin: 0;
+            font-size: 14px;
+            color: var(--text-secondary, #aaa);
+            line-height: 1.5;
+        }
+        .whats-new-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border-color, #333);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .whats-new-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--text-secondary, #aaa);
+            cursor: pointer;
+        }
+        .whats-new-checkbox input {
+            width: 16px;
+            height: 16px;
+        }
+        .whats-new-footer .btn-primary {
+            padding: 10px 24px;
+            background: #0066ff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .whats-new-footer .btn-primary:hover {
+            background: #0052cc;
+        }
+    </style>
+
+    <script>
+        // What's New Popup - Show once per user
+        (function() {
+            const WHATS_NEW_VERSION = '2026.01';
+            const storageKey = 'gex_whats_new_seen_' + WHATS_NEW_VERSION;
+
+            function showWhatsNew() {
+                const seen = localStorage.getItem(storageKey);
+                if (!seen) {
+                    document.getElementById('whatsNewOverlay').classList.add('show');
+                }
+            }
+
+            function closeWhatsNew() {
+                const dontShow = document.getElementById('dontShowAgain').checked;
+                if (dontShow) {
+                    localStorage.setItem(storageKey, 'true');
+                }
+                document.getElementById('whatsNewOverlay').classList.remove('show');
+            }
+
+            document.getElementById('closeWhatsNew').addEventListener('click', closeWhatsNew);
+            document.getElementById('btnGotIt').addEventListener('click', closeWhatsNew);
+            document.getElementById('whatsNewOverlay').addEventListener('click', function(e) {
+                if (e.target === this) closeWhatsNew();
+            });
+
+            // Show after page loads and user is logged in
+            window.addEventListener('load', function() {
+                setTimeout(showWhatsNew, 1000);
+            });
+        })();
+    </script>
+
+    <script src="/static/heatmap.js?v=2.8"></script>
 </body>
 </html>

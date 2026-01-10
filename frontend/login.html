@@ -332,8 +332,10 @@
                     // Store access token
                     accessToken = data.access_token;
                     sessionStorage.setItem('gex_access_token', accessToken);
-                    // Redirect to dashboard
-                    window.location.href = '/app';
+                    // Redirect to original destination or dashboard
+                    const params = new URLSearchParams(window.location.search);
+                    const redirect = params.get('redirect') || '/app';
+                    window.location.href = redirect;
                 } else {
                     const data = await res.json();
                     errorMsg.textContent = data.detail || 'Invalid credentials';

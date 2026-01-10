@@ -734,6 +734,9 @@ let sma9Series = null;
 let sma20Series = null;
 let sma200Series = null;
 let chartLevelLines = [];  // For GEX level lines
+let signalLines = [];  // For LONG/SHORT signal markers
+let signalsEnabled = true;  // Toggle for signal display
+let signalRefreshInterval = null;  // Auto-refresh signals timer
 let chartResolution = '5';
 let chartRefreshInterval = null;
 let chartLoadedSymbol = null;  // Track which symbol chart is showing
@@ -752,6 +755,13 @@ let volumeStrikeData = null;  // Store volume data for re-rendering on chart scr
 let volumeRangeSubscribed = false;  // Track if we've subscribed to range changes for volume
 let volumeResizeObserver = null;  // Resize observer for volume panel sync
 let volumeSyncInterval = null;  // Interval for syncing with chart price scale
+
+// Alert system variables
+let alertsData = [];  // Store current alerts
+let alertRefreshInterval = null;  // Auto-refresh timer
+let alertsEnabled = true;  // Toggle for alerts
+let lastAlertCount = 0;  // Track for new alert detection
+let browserNotificationsEnabled = false;  // Browser notification permission
 
 // Start heatmap pulse animation
 function startHeatmapPulse() {
@@ -1284,6 +1294,8 @@ async function fetchCandleData(symbol, resolution = '5', count = 200) {
         const data = await fetchAPI(`/candles/${symbol}?resolution=${resolution}&count=${count}`);
         updatePriceChart(data);
         updateGexOverlays(data.levels);
+        // Fetch and display confluence signals (LONG/SHORT markers)
+        fetchAndDisplaySignals(symbol);
     } catch (error) {
         console.error('[Chart] Fetch error:', error);
     }
@@ -1445,6 +1457,97 @@ function updateGexOverlays(levels) {
             });
             chartLevelLines.push(supportLine);
         }
+    }
+}
+
+// =============================================================================
+// CONFLUENCE SIGNALS (LONG/SHORT markers on chart)
+// =============================================================================
+
+// Fetch and display confluence signals on chart
+async function fetchAndDisplaySignals(symbol) {
+    if (!signalsEnabled || !candleSeries || !symbol) return;
+
+    try {
+        const data = await fetchAPI(`/flow/${symbol}/signals`);
+
+        // Remove existing signal lines
+        signalLines.forEach(line => {
+            try {
+                candleSeries.removePriceLine(line);
+            } catch (e) {}
+        });
+        signalLines = [];
+
+        if (!data.signals || data.signals.length === 0) {
+            console.log(`[Signals] ${symbol}: No confluence signals`);
+            return;
+        }
+
+        console.log(`[Signals] ${symbol}: ${data.overall_bias}, ${data.signals.length} signals`);
+
+        // Add signal lines
+        data.signals.forEach(signal => {
+            const isLong = signal.signal === 'LONG';
+            const color = isLong ? '#22c55e' : '#ef4444';  // Green for LONG, Red for SHORT
+            const emoji = isLong ? '🟢' : '🔴';
+            const label = isLong ? 'LONG' : 'SHORT';
+
+            // Create price line for signal
+            const line = candleSeries.createPriceLine({
+                price: signal.strike,
+                color: color,
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: `${emoji} ${label} ${signal.confidence}%`
+            });
+            signalLines.push(line);
+        });
+
+    } catch (error) {
+        console.error('[Signals] Error fetching signals:', error);
+    }
+}
+
+// Toggle signals on/off
+function toggleSignals(enabled) {
+    signalsEnabled = enabled;
+    if (!enabled) {
+        // Remove all signal lines
+        signalLines.forEach(line => {
+            try {
+                candleSeries.removePriceLine(line);
+            } catch (e) {}
+        });
+        signalLines = [];
+        stopSignalRefresh();
+    } else if (currentSymbol) {
+        fetchAndDisplaySignals(currentSymbol);
+        startSignalRefresh();
+    }
+}
+
+// Start auto-refresh for signals (every 30 seconds)
+function startSignalRefresh() {
+    if (signalRefreshInterval) return;  // Already running
+
+    signalRefreshInterval = setInterval(() => {
+        if (signalsEnabled && currentSymbol && candleSeries) {
+            console.log('[Signals] Auto-refreshing...');
+            fetchAndDisplaySignals(currentSymbol);
+        }
+    }, 30000);  // 30 seconds
+
+    console.log('[Signals] Auto-refresh started (30s interval)');
+}
+
+// Stop signal auto-refresh
+function stopSignalRefresh() {
+    if (signalRefreshInterval) {
+        clearInterval(signalRefreshInterval);
+        signalRefreshInterval = null;
+        console.log('[Signals] Auto-refresh stopped');
     }
 }
 
@@ -4094,6 +4197,10 @@ async function loadAndRenderChart(symbol, resolution = '5') {
             }, 100);
         }
 
+        // Fetch and display confluence signals (LONG/SHORT markers)
+        fetchAndDisplaySignals(symbol);
+        startSignalRefresh();  // Auto-refresh every 30s
+
     } catch (error) {
         console.error('Error loading chart:', error);
     }
@@ -5990,6 +6097,12 @@ async function init() {
         // Setup auto-refresh
         setupAutoRefresh();
 
+        // Setup trading alerts system
+        setupAlertsUI();
+
+        // Setup AI analysis panel
+        setupAIPanel();
+
         // Check market status (show MARKET CLOSED badge if after hours/weekend)
         checkMarketStatus();
         // Check market status every minute
@@ -6456,6 +6569,552 @@ function formatPlaybackTime(date) {
         minute: '2-digit',
         hour12: true
     });
+}
+
+// =============================================================================
+// TRADING ALERTS SYSTEM
+// =============================================================================
+
+// Fetch alerts from API
+async function fetchAlerts() {
+    try {
+        const data = await fetchAPI('/alerts?limit=20');
+        alertsData = data.alerts || [];
+
+        // Update badge count
+        const badge = document.getElementById('alertBadge');
+        if (badge) {
+            if (alertsData.length > 0) {
+                badge.textContent = alertsData.length;
+                badge.style.display = 'flex';
+
+                // Check for new alerts and show browser notification
+                if (alertsData.length > lastAlertCount && lastAlertCount > 0) {
+                    const newAlerts = alertsData.slice(0, alertsData.length - lastAlertCount);
+                    newAlerts.forEach(alert => {
+                        showBrowserNotification(alert);
+                    });
+                }
+                lastAlertCount = alertsData.length;
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        // Update symbol count
+        const symbolCount = document.getElementById('alertSymbolCount');
+        if (symbolCount && data.monitored_symbols) {
+            symbolCount.textContent = data.monitored_symbols.length;
+        }
+
+        // Render alerts if panel is open
+        renderAlertsList();
+
+        return alertsData;
+    } catch (error) {
+        console.error('[Alerts] Error fetching alerts:', error);
+        return [];
+    }
+}
+
+// Render alerts list
+function renderAlertsList() {
+    const list = document.getElementById('alertsList');
+    if (!list) return;
+
+    if (alertsData.length === 0) {
+        list.innerHTML = '<div class="alerts-empty">No alerts yet. Watching for opportunities...</div>';
+        return;
+    }
+
+    list.innerHTML = alertsData.map(alert => {
+        // Handle both old format (type, message) and new format (title, message, price)
+        const alertType = alert.type || alert.alert_type || 'info';
+        const title = alert.title || formatAlertType(alertType);
+        const message = alert.message || '';
+        const severity = alert.severity || 'info';
+        const symbol = alert.symbol || '';
+        const timestamp = alert.timestamp ? new Date(alert.timestamp) : new Date();
+        const age = formatAlertAge((Date.now() - timestamp.getTime()) / 1000);
+
+        // Format values if present
+        let valueInfo = '';
+        if (alert.price) {
+            valueInfo = `Price: $${alert.price.toFixed(2)}`;
+            if (alert.level) valueInfo += ` | Level: $${alert.level.toFixed(2)}`;
+        } else if (alert.old_value !== undefined && alert.new_value !== undefined) {
+            if (typeof alert.old_value === 'number' && Math.abs(alert.old_value) > 1000) {
+                valueInfo = `${formatGEXShort(alert.old_value)} → ${formatGEXShort(alert.new_value)}`;
+            } else {
+                valueInfo = `${alert.old_value} → ${alert.new_value}`;
+            }
+        }
+
+        return `
+            <div class="alert-item ${severity}" data-alert-id="${alert.id || ''}" data-symbol="${symbol}">
+                <div class="alert-item-header">
+                    <span class="alert-symbol">${symbol}</span>
+                    <span class="alert-time">${age}</span>
+                </div>
+                <div class="alert-title">${title}</div>
+                <div class="alert-message">${message}</div>
+                ${valueInfo ? `<div class="alert-price">${valueInfo}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    // Add click handlers to load symbol
+    list.querySelectorAll('.alert-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const symbol = item.dataset.symbol;
+            if (symbol) {
+                loadSymbol(symbol);
+                closeAlertsPanel();
+            }
+        });
+    });
+}
+
+// Format alert type to readable title
+function formatAlertType(type) {
+    const types = {
+        'net_gex_flip': '⚡ NET GEX FLIPPED',
+        'king_flip': '👑 KING STRIKE MOVED',
+        'king_weakening': '📉 KING WEAKENING',
+        'zero_gamma_cross': '0️⃣ ZERO GAMMA CROSS',
+        'gex_regime': '⚡ GEX REGIME CHANGE',
+        'level_break': '🔥 LEVEL BREAK',
+        'big_move': '🚀 BIG MOVE',
+        'flow_flip': '🔄 FLOW FLIPPED',
+        'acceleration': '⚡ ACCELERATION ZONE',
+        'approaching': '📍 APPROACHING LEVEL',
+        'volume_surge': '📊 VOLUME SURGE'
+    };
+    return types[type] || type.replace(/_/g, ' ').toUpperCase();
+}
+
+// Format GEX value shorthand
+function formatGEXShort(value) {
+    const absVal = Math.abs(value);
+    const sign = value >= 0 ? '+' : '-';
+    if (absVal >= 1e9) return `${sign}$${(absVal / 1e9).toFixed(1)}B`;
+    if (absVal >= 1e6) return `${sign}$${(absVal / 1e6).toFixed(0)}M`;
+    return `${sign}$${absVal.toFixed(0)}`;
+}
+
+// Format alert age
+function formatAlertAge(seconds) {
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+// Show browser notification
+function showBrowserNotification(alert) {
+    if (!browserNotificationsEnabled) return;
+    if (Notification.permission !== 'granted') return;
+
+    const icon = alert.severity === 'critical' ? '🚨' : alert.severity === 'warning' ? '⚠️' : 'ℹ️';
+
+    new Notification(`${icon} ${alert.symbol}: ${alert.title}`, {
+        body: alert.message,
+        icon: '/static/favicon.ico',
+        tag: alert.id,
+        requireInteraction: alert.severity === 'critical'
+    });
+}
+
+// Request browser notification permission
+async function requestNotificationPermission() {
+    if (!('Notification' in window)) {
+        console.log('[Alerts] Browser notifications not supported');
+        return false;
+    }
+
+    if (Notification.permission === 'granted') {
+        browserNotificationsEnabled = true;
+        return true;
+    }
+
+    if (Notification.permission !== 'denied') {
+        const permission = await Notification.requestPermission();
+        browserNotificationsEnabled = permission === 'granted';
+        return browserNotificationsEnabled;
+    }
+
+    return false;
+}
+
+// Start alert auto-refresh
+function startAlertRefresh() {
+    if (alertRefreshInterval) return;
+
+    // Initial fetch
+    fetchAlerts();
+
+    // Refresh every 15 seconds
+    alertRefreshInterval = setInterval(() => {
+        fetchAlerts();
+    }, 15000);
+
+    console.log('[Alerts] Auto-refresh started (15s interval)');
+}
+
+// Stop alert auto-refresh
+function stopAlertRefresh() {
+    if (alertRefreshInterval) {
+        clearInterval(alertRefreshInterval);
+        alertRefreshInterval = null;
+    }
+}
+
+// Open alerts panel
+function openAlertsPanel() {
+    const overlay = document.getElementById('alertsOverlay');
+    if (overlay) {
+        overlay.style.display = 'flex';
+        fetchAlerts();  // Refresh when opening
+    }
+}
+
+// Close alerts panel
+function closeAlertsPanel() {
+    const overlay = document.getElementById('alertsOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+// Clear all alerts
+async function clearAllAlerts() {
+    try {
+        await fetch(`${API_BASE}/alerts`, { method: 'DELETE' });
+        alertsData = [];
+        lastAlertCount = 0;
+        renderAlertsList();
+
+        const badge = document.getElementById('alertBadge');
+        if (badge) badge.style.display = 'none';
+    } catch (error) {
+        console.error('[Alerts] Error clearing alerts:', error);
+    }
+}
+
+// Setup alerts UI
+function setupAlertsUI() {
+    // Alert button click
+    const btnAlerts = document.getElementById('btnAlerts');
+    if (btnAlerts) {
+        btnAlerts.addEventListener('click', () => {
+            const overlay = document.getElementById('alertsOverlay');
+            if (overlay.style.display === 'none') {
+                openAlertsPanel();
+            } else {
+                closeAlertsPanel();
+            }
+        });
+    }
+
+    // Close button
+    const btnClose = document.getElementById('btnCloseAlerts');
+    if (btnClose) {
+        btnClose.addEventListener('click', closeAlertsPanel);
+    }
+
+    // Clear button
+    const btnClear = document.getElementById('btnClearAlerts');
+    if (btnClear) {
+        btnClear.addEventListener('click', clearAllAlerts);
+    }
+
+    // Click outside to close
+    const overlay = document.getElementById('alertsOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                closeAlertsPanel();
+            }
+        });
+    }
+
+    // Request notification permission
+    requestNotificationPermission();
+
+    // Start auto-refresh
+    startAlertRefresh();
+}
+
+// =============================================================================
+// AI TRADING ANALYSIS
+// =============================================================================
+
+let aiChatHistory = [];
+let aiIsLoading = false;
+
+// Open AI panel
+function openAIPanel() {
+    const overlay = document.getElementById('aiOverlay');
+    if (overlay) {
+        overlay.style.display = 'flex';
+        // Update symbol
+        const aiSymbol = document.getElementById('aiSymbol');
+        if (aiSymbol) aiSymbol.textContent = currentSymbol;
+    }
+}
+
+// Close AI panel
+function closeAIPanel() {
+    const overlay = document.getElementById('aiOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+// Get full AI analysis
+async function getAIAnalysis() {
+    if (aiIsLoading) return;
+
+    const btnAnalyze = document.getElementById('btnAnalyze');
+    const aiStatus = document.getElementById('aiStatus');
+    const aiMessages = document.getElementById('aiMessages');
+
+    aiIsLoading = true;
+    if (btnAnalyze) btnAnalyze.disabled = true;
+    if (aiStatus) {
+        aiStatus.textContent = 'Analyzing...';
+        aiStatus.className = 'ai-status loading';
+    }
+
+    // Clear welcome message and show loading
+    if (aiMessages) {
+        aiMessages.innerHTML = '<div class="ai-message loading">Analyzing market data...</div>';
+    }
+
+    try {
+        const response = await fetch(`/ai/analyze/${currentSymbol}`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Analysis failed');
+        }
+
+        const data = await response.json();
+
+        // Display analysis
+        if (aiMessages) {
+            aiMessages.innerHTML = `<div class="ai-message assistant">${formatAIResponse(data.analysis)}</div>`;
+            aiMessages.scrollTop = aiMessages.scrollHeight;
+        }
+
+        // Add to chat history
+        aiChatHistory = [
+            { role: 'assistant', content: data.analysis }
+        ];
+
+        if (aiStatus) {
+            aiStatus.textContent = 'Ready';
+            aiStatus.className = 'ai-status ready';
+        }
+    } catch (error) {
+        console.error('[AI] Analysis error:', error);
+        if (aiMessages) {
+            aiMessages.innerHTML = `<div class="ai-message assistant" style="color: var(--accent-red);">
+                Error: ${error.message}. Make sure OPENAI_API_KEY is set.
+            </div>`;
+        }
+        if (aiStatus) {
+            aiStatus.textContent = 'Error';
+            aiStatus.className = 'ai-status';
+        }
+    } finally {
+        aiIsLoading = false;
+        if (btnAnalyze) btnAnalyze.disabled = false;
+    }
+}
+
+// Send chat message
+async function sendAIChat(message) {
+    if (aiIsLoading || !message.trim()) return;
+
+    const aiInput = document.getElementById('aiInput');
+    const btnSend = document.getElementById('btnSendAI');
+    const aiMessages = document.getElementById('aiMessages');
+    const aiStatus = document.getElementById('aiStatus');
+
+    // Clear input
+    if (aiInput) aiInput.value = '';
+
+    // Remove welcome message if present
+    const welcome = aiMessages?.querySelector('.ai-welcome');
+    if (welcome) welcome.remove();
+
+    // Add user message to UI
+    if (aiMessages) {
+        aiMessages.innerHTML += `<div class="ai-message user">${escapeHtml(message)}</div>`;
+        aiMessages.innerHTML += `<div class="ai-message loading" id="aiLoading">Thinking...</div>`;
+        aiMessages.scrollTop = aiMessages.scrollHeight;
+    }
+
+    aiIsLoading = true;
+    if (btnSend) btnSend.disabled = true;
+    if (aiStatus) {
+        aiStatus.textContent = 'Thinking...';
+        aiStatus.className = 'ai-status loading';
+    }
+
+    try {
+        const response = await fetch('/ai/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                symbol: currentSymbol,
+                message: message,
+                history: aiChatHistory
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Chat failed');
+        }
+
+        const data = await response.json();
+
+        // Remove loading message
+        const loading = document.getElementById('aiLoading');
+        if (loading) loading.remove();
+
+        // Add assistant response
+        if (aiMessages) {
+            aiMessages.innerHTML += `<div class="ai-message assistant">${formatAIResponse(data.reply)}</div>`;
+            aiMessages.scrollTop = aiMessages.scrollHeight;
+        }
+
+        // Update chat history
+        aiChatHistory.push({ role: 'user', content: message });
+        aiChatHistory.push({ role: 'assistant', content: data.reply });
+
+        if (aiStatus) {
+            aiStatus.textContent = 'Ready';
+            aiStatus.className = 'ai-status ready';
+        }
+    } catch (error) {
+        console.error('[AI] Chat error:', error);
+
+        // Remove loading message
+        const loading = document.getElementById('aiLoading');
+        if (loading) loading.remove();
+
+        if (aiMessages) {
+            aiMessages.innerHTML += `<div class="ai-message assistant" style="color: var(--accent-red);">
+                Error: ${error.message}
+            </div>`;
+        }
+        if (aiStatus) {
+            aiStatus.textContent = 'Error';
+            aiStatus.className = 'ai-status';
+        }
+    } finally {
+        aiIsLoading = false;
+        if (btnSend) btnSend.disabled = false;
+        if (aiInput) aiInput.focus();
+    }
+}
+
+// Format AI response (convert markdown to HTML)
+function formatAIResponse(text) {
+    if (!text) return '';
+
+    // Escape HTML first
+    let html = escapeHtml(text);
+
+    // Convert markdown to HTML
+    // Headers
+    html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+
+    // Bold
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    // Bullet points
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+    // Line breaks
+    html = html.replace(/\n\n/g, '</p><p>');
+    html = html.replace(/\n/g, '<br>');
+
+    return '<p>' + html + '</p>';
+}
+
+// Escape HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Setup AI panel UI
+function setupAIPanel() {
+    // AI button click
+    const btnAI = document.getElementById('btnAI');
+    if (btnAI) {
+        btnAI.addEventListener('click', () => {
+            const overlay = document.getElementById('aiOverlay');
+            if (overlay.style.display === 'none') {
+                openAIPanel();
+            } else {
+                closeAIPanel();
+            }
+        });
+    }
+
+    // Close button
+    const btnClose = document.getElementById('btnCloseAI');
+    if (btnClose) {
+        btnClose.addEventListener('click', closeAIPanel);
+    }
+
+    // Analyze button
+    const btnAnalyze = document.getElementById('btnAnalyze');
+    if (btnAnalyze) {
+        btnAnalyze.addEventListener('click', getAIAnalysis);
+    }
+
+    // Send button
+    const btnSend = document.getElementById('btnSendAI');
+    if (btnSend) {
+        btnSend.addEventListener('click', () => {
+            const input = document.getElementById('aiInput');
+            if (input && input.value.trim()) {
+                sendAIChat(input.value.trim());
+            }
+        });
+    }
+
+    // Enter key to send
+    const aiInput = document.getElementById('aiInput');
+    if (aiInput) {
+        aiInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (aiInput.value.trim()) {
+                    sendAIChat(aiInput.value.trim());
+                }
+            }
+        });
+    }
+
+    // Click outside to close
+    const overlay = document.getElementById('aiOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                closeAIPanel();
+            }
+        });
+    }
 }
 
 // Start the app

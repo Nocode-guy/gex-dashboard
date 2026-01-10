@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Journal - GEX Dashboard</title>
+    <link rel="stylesheet" href="styles.css?v=2.9">
+    <style>
+        .journal-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .journal-header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .journal-header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--text-primary);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1d8aff;
+        }
+
+        .btn-secondary {
+            background: var(--secondary-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        /* Calendar Section */
+        .calendar-section {
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            padding: 20px;
+        }
+
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .calendar-nav {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .calendar-nav button {
+            background: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .calendar-month {
+            font-size: 18px;
+            font-weight: 600;
+            min-width: 150px;
+            text-align: center;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+        }
+
+        .calendar-day-header {
+            text-align: center;
+            padding: 10px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            background: var(--secondary-bg);
+            cursor: pointer;
+            transition: all 0.2s;
+            min-height: 60px;
+        }
+
+        .calendar-day:hover {
+            transform: scale(1.05);
+        }
+
+        .calendar-day.empty {
+            background: transparent;
+            cursor: default;
+        }
+
+        .calendar-day.positive {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid var(--bullish-green);
+        }
+
+        .calendar-day.negative {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid var(--bearish-red);
+        }
+
+        .day-number {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .day-pnl {
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .positive .day-pnl { color: var(--bullish-green); }
+        .negative .day-pnl { color: var(--bearish-red); }
+
+        /* Analytics Section */
+        .analytics-section {
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            padding: 20px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: var(--secondary-bg);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .stat-positive { color: var(--bullish-green); }
+        .stat-negative { color: var(--bearish-red); }
+
+        /* Trades Section */
+        .trades-section {
+            grid-column: 1 / -1;
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            padding: 20px;
+        }
+
+        .trades-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .trades-table th,
+        .trades-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .trades-table th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        .trades-table tr:hover {
+            background: var(--secondary-bg);
+        }
+
+        .trade-pnl.positive { color: var(--bullish-green); }
+        .trade-pnl.negative { color: var(--bearish-red); }
+
+        .trade-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            background: var(--accent-blue);
+            color: white;
+            border-radius: 4px;
+            font-size: 10px;
+            margin-right: 4px;
+        }
+
+        .trade-actions button {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 5px;
+        }
+
+        .trade-actions button:hover {
+            color: var(--text-primary);
+        }
+
+        /* Trade Entry Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--secondary-bg);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .modal-actions button {
+            flex: 1;
+        }
+
+        /* Back link */
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-bottom: 10px;
+        }
+
+        .back-link:hover {
+            color: var(--text-primary);
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .journal-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="journal-container">
+        <a href="/app" class="back-link">← Back to Dashboard</a>
+
+        <div class="journal-header">
+            <h1>Trading Journal</h1>
+            <div class="header-actions">
+                <button class="btn btn-secondary" onclick="showImportModal()">Import CSV</button>
+                <button class="btn btn-primary" onclick="showTradeModal()">+ New Trade</button>
+            </div>
+        </div>
+
+        <!-- Calendar -->
+        <div class="calendar-section">
+            <div class="calendar-header">
+                <h3>P&L Calendar</h3>
+                <div class="calendar-nav">
+                    <button onclick="changeMonth(-1)">←</button>
+                    <span class="calendar-month" id="calendarMonth">January 2026</span>
+                    <button onclick="changeMonth(1)">→</button>
+                </div>
+            </div>
+            <div class="calendar-grid" id="calendarGrid">
+                <div class="calendar-day-header">Sun</div>
+                <div class="calendar-day-header">Mon</div>
+                <div class="calendar-day-header">Tue</div>
+                <div class="calendar-day-header">Wed</div>
+                <div class="calendar-day-header">Thu</div>
+                <div class="calendar-day-header">Fri</div>
+                <div class="calendar-day-header">Sat</div>
+            </div>
+        </div>
+
+        <!-- Analytics -->
+        <div class="analytics-section">
+            <h3>Analytics</h3>
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalPnl">$0</div>
+                    <div class="stat-label">Total P&L</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="winRate">0%</div>
+                    <div class="stat-label">Win Rate</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avgWin">$0</div>
+                    <div class="stat-label">Avg Win</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avgLoss">$0</div>
+                    <div class="stat-label">Avg Loss</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalTrades">0</div>
+                    <div class="stat-label">Total Trades</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="profitFactor">0</div>
+                    <div class="stat-label">Profit Factor</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trades List -->
+        <div class="trades-section">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>Recent Trades</h3>
+                <select id="tradeFilter" onchange="loadTrades()">
+                    <option value="">All Trades</option>
+                    <option value="open">Open</option>
+                    <option value="closed">Closed</option>
+                </select>
+            </div>
+            <table class="trades-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Qty</th>
+                        <th>Entry</th>
+                        <th>Exit</th>
+                        <th>P&L</th>
+                        <th>Date</th>
+                        <th>Tags</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tradesBody">
+                    <tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-secondary);">Loading trades...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- New Trade Modal -->
+    <div class="modal-overlay" id="tradeModal">
+        <div class="modal">
+            <h2 id="modalTitle">New Trade</h2>
+            <input type="hidden" id="editTradeId">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Symbol</label>
+                    <input type="text" id="tradeSymbol" placeholder="SPY" required>
+                </div>
+                <div class="form-group">
+                    <label>Side</label>
+                    <select id="tradeSide">
+                        <option value="long">Long</option>
+                        <option value="short">Short</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" id="tradeQty" placeholder="100" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label>Entry Price</label>
+                    <input type="number" id="tradeEntry" placeholder="450.00" step="0.01" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Entry Time</label>
+                <input type="datetime-local" id="tradeEntryTime" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Exit Price (optional)</label>
+                    <input type="number" id="tradeExit" placeholder="455.00" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Exit Time (optional)</label>
+                    <input type="datetime-local" id="tradeExitTime">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <textarea id="tradeNotes" rows="3" placeholder="Trade notes..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Tags (comma-separated)</label>
+                <input type="text" id="tradeTags" placeholder="scalp, momentum, earnings">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeTradeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveTrade()">Save Trade</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div class="modal-overlay" id="importModal">
+        <div class="modal">
+            <h2>Import Trades from CSV</h2>
+            <div class="form-group">
+                <label>CSV Format</label>
+                <p style="color: var(--text-secondary); font-size: 12px; margin: 5px 0;">
+                    symbol, side, quantity, entry_price, exit_price, entry_time, exit_time
+                </p>
+            </div>
+            <div class="form-group">
+                <label>Paste CSV Data</label>
+                <textarea id="csvData" rows="10" placeholder="SPY,long,100,450.00,455.00,2026-01-10T09:30:00,2026-01-10T10:00:00"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="importCSV()">Import</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentYear = 2026;
+        let currentMonth = 1;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Set default entry time to now
+            const now = new Date();
+            document.getElementById('tradeEntryTime').value = now.toISOString().slice(0, 16);
+
+            await loadCalendar();
+            await loadAnalytics();
+            await loadTrades();
+        });
+
+        // Calendar functions
+        async function loadCalendar() {
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                               'July', 'August', 'September', 'October', 'November', 'December'];
+            document.getElementById('calendarMonth').textContent = `${monthNames[currentMonth - 1]} ${currentYear}`;
+
+            try {
+                const response = await fetch(`/journal/calendar?year=${currentYear}&month=${currentMonth}`, {
+                    credentials: 'include'
+                });
+
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const data = await response.json();
+                renderCalendar(data.days);
+            } catch (error) {
+                console.error('Error loading calendar:', error);
+                renderCalendar([]);
+            }
+        }
+
+        function renderCalendar(pnlData) {
+            const grid = document.getElementById('calendarGrid');
+            // Keep headers
+            const headers = Array.from(grid.querySelectorAll('.calendar-day-header'));
+            grid.innerHTML = '';
+            headers.forEach(h => grid.appendChild(h));
+
+            // Get first day of month
+            const firstDay = new Date(currentYear, currentMonth - 1, 1).getDay();
+            const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+
+            // Create P&L lookup
+            const pnlByDay = {};
+            pnlData.forEach(d => {
+                const day = parseInt(d.trade_date.split('-')[2]);
+                pnlByDay[day] = d;
+            });
+
+            // Empty cells before first day
+            for (let i = 0; i < firstDay; i++) {
+                const empty = document.createElement('div');
+                empty.className = 'calendar-day empty';
+                grid.appendChild(empty);
+            }
+
+            // Days of month
+            for (let day = 1; day <= daysInMonth; day++) {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day';
+
+                const pnl = pnlByDay[day];
+                if (pnl) {
+                    cell.classList.add(pnl.total_pnl >= 0 ? 'positive' : 'negative');
+                    cell.innerHTML = `
+                        <span class="day-number">${day}</span>
+                        <span class="day-pnl">$${pnl.total_pnl.toFixed(0)}</span>
+                    `;
+                } else {
+                    cell.innerHTML = `<span class="day-number">${day}</span>`;
+                }
+
+                cell.onclick = () => showDayTrades(day);
+                grid.appendChild(cell);
+            }
+        }
+
+        function changeMonth(delta) {
+            currentMonth += delta;
+            if (currentMonth > 12) {
+                currentMonth = 1;
+                currentYear++;
+            } else if (currentMonth < 1) {
+                currentMonth = 12;
+                currentYear--;
+            }
+            loadCalendar();
+        }
+
+        function showDayTrades(day) {
+            const dateStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            // Could filter trades by this date
+            console.log('Show trades for:', dateStr);
+        }
+
+        // Analytics
+        async function loadAnalytics() {
+            try {
+                const response = await fetch('/journal/analytics', { credentials: 'include' });
+                if (!response.ok) return;
+
+                const data = await response.json();
+
+                document.getElementById('totalPnl').textContent = '$' + (data.total_pnl || 0).toFixed(2);
+                document.getElementById('totalPnl').className = 'stat-value ' + ((data.total_pnl || 0) >= 0 ? 'stat-positive' : 'stat-negative');
+
+                document.getElementById('winRate').textContent = (data.win_rate || 0).toFixed(1) + '%';
+                document.getElementById('avgWin').textContent = '$' + (data.avg_win || 0).toFixed(2);
+                document.getElementById('avgWin').className = 'stat-value stat-positive';
+                document.getElementById('avgLoss').textContent = '$' + Math.abs(data.avg_loss || 0).toFixed(2);
+                document.getElementById('avgLoss').className = 'stat-value stat-negative';
+                document.getElementById('totalTrades').textContent = data.total_trades || 0;
+                document.getElementById('profitFactor').textContent = (data.profit_factor || 0).toFixed(2);
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+            }
+        }
+
+        // Trades
+        async function loadTrades() {
+            const status = document.getElementById('tradeFilter').value;
+            let url = '/journal/trades?limit=50';
+            if (status) url += `&status=${status}`;
+
+            try {
+                const response = await fetch(url, { credentials: 'include' });
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const data = await response.json();
+                renderTrades(data.trades);
+            } catch (error) {
+                console.error('Error loading trades:', error);
+                document.getElementById('tradesBody').innerHTML =
+                    '<tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-secondary);">Error loading trades</td></tr>';
+            }
+        }
+
+        function renderTrades(trades) {
+            const tbody = document.getElementById('tradesBody');
+
+            if (!trades || trades.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-secondary);">No trades yet. Click "+ New Trade" to add one.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = trades.map(t => `
+                <tr>
+                    <td><strong>${t.symbol}</strong></td>
+                    <td>${t.side.toUpperCase()}</td>
+                    <td>${t.quantity}</td>
+                    <td>$${t.entry_price.toFixed(2)}</td>
+                    <td>${t.exit_price ? '$' + t.exit_price.toFixed(2) : '-'}</td>
+                    <td class="trade-pnl ${t.pnl >= 0 ? 'positive' : 'negative'}">
+                        ${t.pnl ? '$' + t.pnl.toFixed(2) : '-'}
+                    </td>
+                    <td>${new Date(t.entry_time).toLocaleDateString()}</td>
+                    <td>${(t.tags || []).map(tag => `<span class="trade-tag">${tag}</span>`).join('')}</td>
+                    <td class="trade-actions">
+                        ${t.status === 'open' ? `<button onclick="closeTrade('${t.id}')" title="Close">✓</button>` : ''}
+                        <button onclick="deleteTrade('${t.id}')" title="Delete">×</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Modal functions
+        function showTradeModal() {
+            document.getElementById('modalTitle').textContent = 'New Trade';
+            document.getElementById('editTradeId').value = '';
+            document.getElementById('tradeSymbol').value = '';
+            document.getElementById('tradeSide').value = 'long';
+            document.getElementById('tradeQty').value = '';
+            document.getElementById('tradeEntry').value = '';
+            document.getElementById('tradeExit').value = '';
+            document.getElementById('tradeEntryTime').value = new Date().toISOString().slice(0, 16);
+            document.getElementById('tradeExitTime').value = '';
+            document.getElementById('tradeNotes').value = '';
+            document.getElementById('tradeTags').value = '';
+            document.getElementById('tradeModal').classList.add('active');
+        }
+
+        function closeTradeModal() {
+            document.getElementById('tradeModal').classList.remove('active');
+        }
+
+        async function saveTrade() {
+            const trade = {
+                symbol: document.getElementById('tradeSymbol').value.toUpperCase(),
+                side: document.getElementById('tradeSide').value,
+                quantity: parseFloat(document.getElementById('tradeQty').value),
+                entry_price: parseFloat(document.getElementById('tradeEntry').value),
+                entry_time: document.getElementById('tradeEntryTime').value,
+                exit_price: document.getElementById('tradeExit').value ? parseFloat(document.getElementById('tradeExit').value) : null,
+                exit_time: document.getElementById('tradeExitTime').value || null,
+                notes: document.getElementById('tradeNotes').value || null,
+                tags: document.getElementById('tradeTags').value ? document.getElementById('tradeTags').value.split(',').map(t => t.trim()) : null
+            };
+
+            try {
+                const response = await fetch('/journal/trades', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(trade)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    alert('Error: ' + (error.detail || 'Failed to save trade'));
+                    return;
+                }
+
+                closeTradeModal();
+                await loadTrades();
+                await loadCalendar();
+                await loadAnalytics();
+            } catch (error) {
+                console.error('Error saving trade:', error);
+                alert('Error saving trade');
+            }
+        }
+
+        async function closeTrade(tradeId) {
+            const exitPrice = prompt('Enter exit price:');
+            if (!exitPrice) return;
+
+            try {
+                const response = await fetch(`/journal/trades/${tradeId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        exit_price: parseFloat(exitPrice),
+                        exit_time: new Date().toISOString()
+                    })
+                });
+
+                if (!response.ok) {
+                    alert('Error closing trade');
+                    return;
+                }
+
+                await loadTrades();
+                await loadCalendar();
+                await loadAnalytics();
+            } catch (error) {
+                console.error('Error closing trade:', error);
+            }
+        }
+
+        async function deleteTrade(tradeId) {
+            if (!confirm('Delete this trade?')) return;
+
+            try {
+                await fetch(`/journal/trades/${tradeId}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+
+                await loadTrades();
+                await loadCalendar();
+                await loadAnalytics();
+            } catch (error) {
+                console.error('Error deleting trade:', error);
+            }
+        }
+
+        // Import
+        function showImportModal() {
+            document.getElementById('csvData').value = '';
+            document.getElementById('importModal').classList.add('active');
+        }
+
+        function closeImportModal() {
+            document.getElementById('importModal').classList.remove('active');
+        }
+
+        async function importCSV() {
+            const csvText = document.getElementById('csvData').value.trim();
+            if (!csvText) {
+                alert('Please paste CSV data');
+                return;
+            }
+
+            const lines = csvText.split('\n');
+            const trades = [];
+
+            for (const line of lines) {
+                const parts = line.split(',').map(p => p.trim());
+                if (parts.length >= 6) {
+                    trades.push({
+                        symbol: parts[0],
+                        side: parts[1] || 'long',
+                        quantity: parts[2],
+                        entry_price: parts[3],
+                        exit_price: parts[4] || null,
+                        entry_time: parts[5],
+                        exit_time: parts[6] || null
+                    });
+                }
+            }
+
+            if (trades.length === 0) {
+                alert('No valid trades found in CSV');
+                return;
+            }
+
+            try {
+                const response = await fetch('/journal/trades/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ trades })
+                });
+
+                const result = await response.json();
+                alert(`Imported ${result.imported} of ${result.total} trades`);
+
+                if (result.errors && result.errors.length > 0) {
+                    console.error('Import errors:', result.errors);
+                }
+
+                closeImportModal();
+                await loadTrades();
+                await loadCalendar();
+                await loadAnalytics();
+            } catch (error) {
+                console.error('Error importing:', error);
+                alert('Error importing trades');
+            }
+        }
+    </script>
+</body>
+</html>

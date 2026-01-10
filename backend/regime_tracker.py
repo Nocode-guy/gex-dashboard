@@ -4,7 +4,7 @@ Volatility Regime Tracker & Alert System
 Tracks VIX levels, market regime, and generates alerts for GEX changes.
 """
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
@@ -39,6 +39,8 @@ class AlertType(Enum):
     ZERO_GAMMA_CROSS = "zero_gamma_cross"  # Zero gamma crossed spot
     REGIME_CHANGE = "regime_change"       # Vol regime changed
     APPROACHING_KING = "approaching_king"  # Price nearing King
+    BIG_MOVE = "big_move"                 # Large % price move detected
+    VOLUME_SURGE = "volume_surge"         # Unusual volume spike
 
 
 class AlertSeverity(Enum):
@@ -183,6 +185,24 @@ class RegimeTracker:
     Tracks volatility regime and detects GEX changes.
     """
 
+    # Top symbols to scan for big moves
+    SCAN_SYMBOLS = [
+        # Major ETFs
+        "SPY", "QQQ", "IWM", "DIA",
+        # Mag 7
+        "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA",
+        # Popular movers
+        "AMD", "NFLX", "CRM", "ORCL", "INTC", "MU", "SMCI",
+        # Finance
+        "JPM", "BAC", "GS", "V", "MA",
+        # Retail/Consumer
+        "COST", "WMT", "HD", "TGT", "NKE",
+        # Energy
+        "XOM", "CVX",
+        # Crypto-adjacent
+        "COIN", "MSTR"
+    ]
+
     def __init__(self):
         self.vix_history: List[float] = []
         self.previous_snapshots: Dict[str, GEXSnapshot] = {}
@@ -193,6 +213,10 @@ class RegimeTracker:
         # Alert debouncing - track consecutive triggers
         self._pending_alerts: Dict[str, int] = {}  # key -> consecutive count
         self._last_reliability_calc: Dict[str, ReliabilityScore] = {}
+
+        # Price tracking for big move detection
+        self._price_history: Dict[str, List[Tuple[datetime, float]]] = {}  # symbol -> [(time, price), ...]
+        self._last_big_move_alert: Dict[str, datetime] = {}  # Cooldown tracking
 
     def fetch_vix(self) -> Tuple[float, float]:
         """
@@ -588,6 +612,108 @@ class RegimeTracker:
             net_vex=net_vex,
             net_dex=net_dex
         )
+
+    def track_price(self, symbol: str, price: float):
+        """Track price for big move detection."""
+        now = datetime.now()
+
+        if symbol not in self._price_history:
+            self._price_history[symbol] = []
+
+        self._price_history[symbol].append((now, price))
+
+        # Keep only last 30 minutes of data (at ~1 min intervals = ~30 points)
+        cutoff = now - timedelta(minutes=30)
+        self._price_history[symbol] = [
+            (t, p) for t, p in self._price_history[symbol] if t > cutoff
+        ]
+
+    def check_big_move(self, symbol: str, current_price: float) -> Optional[dict]:
+        """
+        Check if symbol has made a big move.
+        Returns alert info if big move detected, None otherwise.
+
+        Thresholds:
+        - ETFs (SPY, QQQ, etc): 1% in 15 min
+        - Stocks: 2% in 15 min or 3% in 30 min
+        """
+        now = datetime.now()
+
+        # Check cooldown (10 min between alerts for same symbol)
+        if symbol in self._last_big_move_alert:
+            if now - self._last_big_move_alert[symbol] < timedelta(minutes=10):
+                return None
+
+        # Track current price
+        self.track_price(symbol, current_price)
+
+        history = self._price_history.get(symbol, [])
+        if len(history) < 3:  # Need at least 3 data points
+            return None
+
+        # Determine thresholds based on symbol type
+        is_etf = symbol in ["SPY", "QQQ", "IWM", "DIA", "XLF", "XLE", "XLK"]
+        threshold_15min = 1.0 if is_etf else 2.0  # % move threshold
+        threshold_30min = 1.5 if is_etf else 3.0
+
+        # Check 15 min move
+        cutoff_15 = now - timedelta(minutes=15)
+        prices_15 = [p for t, p in history if t > cutoff_15]
+
+        if len(prices_15) >= 2:
+            start_price = prices_15[0]
+            pct_move = ((current_price - start_price) / start_price) * 100
+
+            if abs(pct_move) >= threshold_15min:
+                direction = "UP" if pct_move > 0 else "DOWN"
+                dollar_move = current_price - start_price
+
+                self._last_big_move_alert[symbol] = now
+                self._create_alert(
+                    AlertType.BIG_MOVE,
+                    AlertSeverity.CRITICAL,
+                    symbol,
+                    f"BIG MOVE {direction}: {pct_move:+.1f}% (${dollar_move:+.2f}) in 15 min",
+                    old_value=start_price,
+                    new_value=current_price
+                )
+                return {
+                    "symbol": symbol,
+                    "direction": direction,
+                    "pct_move": pct_move,
+                    "dollar_move": dollar_move,
+                    "timeframe": "15min"
+                }
+
+        # Check 30 min move (only if 15 min didn't trigger)
+        prices_30 = [p for t, p in history]  # Full history is already 30 min max
+
+        if len(prices_30) >= 5:
+            start_price = prices_30[0]
+            pct_move = ((current_price - start_price) / start_price) * 100
+
+            if abs(pct_move) >= threshold_30min:
+                direction = "UP" if pct_move > 0 else "DOWN"
+                dollar_move = current_price - start_price
+
+                self._last_big_move_alert[symbol] = now
+                self._create_alert(
+                    AlertType.BIG_MOVE,
+                    AlertSeverity.WARNING,
+                    symbol,
+                    f"MOVING {direction}: {pct_move:+.1f}% (${dollar_move:+.2f}) in 30 min",
+                    old_value=start_price,
+                    new_value=current_price
+                )
+                return {
+                    "symbol": symbol,
+                    "direction": direction,
+                    "pct_move": pct_move,
+                    "dollar_move": dollar_move,
+                    "timeframe": "30min"
+                }
+
+        return None
 
     def _create_alert(
         self,
