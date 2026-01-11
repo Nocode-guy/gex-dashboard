@@ -2518,6 +2518,28 @@ async def analyze_symbol(
             gex_sign = "+" if zone.gex > 0 else ""
             data_context += f"- ${zone.strike}: {gex_sign}{zone.gex/1e6:.1f}M GEX\n"
 
+        # Add Put/Call Walls (Liquidity Zones)
+        if gex_data.put_call_walls and gex_data.put_call_walls.get('walls'):
+            data_context += "\n### Liquidity Zones (Put/Call Walls)\n"
+            walls = gex_data.put_call_walls['walls']
+            # Sort by total OI to find highest liquidity
+            high_liquidity = sorted(walls, key=lambda w: w.get('total_oi', 0), reverse=True)[:5]
+            for wall in high_liquidity:
+                call_gex = wall.get('call_gex', 0) / 1e6
+                put_gex = wall.get('put_gex', 0) / 1e6
+                total_oi = wall.get('total_oi', 0)
+                dominant = "CALL WALL" if call_gex > abs(put_gex) else "PUT WALL"
+                data_context += f"- ${wall['strike']}: {dominant} | Call GEX: {call_gex:+.1f}M, Put GEX: {put_gex:+.1f}M, OI: {total_oi:,}\n"
+
+        # Add Gatekeeper (support/resistance from -GEX)
+        if gex_data.gatekeeper_node:
+            data_context += f"\n### Key Support/Resistance\n"
+            data_context += f"- Gatekeeper (highest -GEX): ${gex_data.gatekeeper_node.strike} ({gex_data.gatekeeper_node.gex/1e6:.1f}M)\n"
+
+        # Add GEX Flip Level if available
+        if gex_data.gex_flip_level:
+            data_context += f"- GEX Flip Level: ${gex_data.gex_flip_level:.2f}\n"
+
         # Add flow data if available
         if flow_data:
             data_context += f"""
@@ -2646,11 +2668,19 @@ async def chat_with_ai(
             market_context = f"""
 Current {symbol} data:
 - Price: ${gex_data.spot_price:.2f}
-- King: ${gex_data.king_node.strike if gex_data.king_node else 'N/A'}
+- King (Magnet): ${gex_data.king_node.strike if gex_data.king_node else 'N/A'}
+- Gatekeeper (Resistance): ${gex_data.gatekeeper_node.strike if gex_data.gatekeeper_node else 'N/A'}
 - Zero Gamma: ${gex_data.zero_gamma_level:.2f}
 - Net GEX: ${gex_data.net_gex:,.0f}
-- Above/Below 0γ: {"ABOVE" if gex_data.spot_price > gex_data.zero_gamma_level else "BELOW"}
+- Regime: {"ABOVE 0γ (trending)" if gex_data.spot_price > gex_data.zero_gamma_level else "BELOW 0γ (mean-reverting)"}
 """
+            # Add liquidity zones
+            if gex_data.put_call_walls and gex_data.put_call_walls.get('walls'):
+                walls = gex_data.put_call_walls['walls']
+                high_liq = sorted(walls, key=lambda w: w.get('total_oi', 0), reverse=True)[:3]
+                market_context += "Key Liquidity Zones:\n"
+                for w in high_liq:
+                    market_context += f"- ${w['strike']}: OI {w.get('total_oi', 0):,}\n"
 
         # Load chat history from database (instead of request.history)
         conversation = ""
