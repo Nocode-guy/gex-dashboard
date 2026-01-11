@@ -2445,6 +2445,16 @@ async def analyze_symbol(
 
     user_id = str(current_user.get('sub') or current_user.get('id'))
 
+    # Check if user has AI access enabled
+    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+        from db_postgres import get_user_ai_enabled
+        ai_enabled = await get_user_ai_enabled(user_id)
+        if not ai_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="AI access not enabled for your account. Contact admin to enable AI."
+            )
+
     # Check token limit
     if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
         limit_info = await check_user_token_limit(user_id)
@@ -2537,19 +2547,21 @@ async def analyze_symbol(
 - GEX Reliability: {regime.gex_reliability}
 """
 
-        # Call OpenAI (GPT-5-mini uses Responses API)
-        response = openai_client.responses.create(
+        # Call OpenAI
+        response = openai_client.chat.completions.create(
             model="gpt-5-mini",
-            instructions=AI_TRADING_SYSTEM_PROMPT,
-            input=f"Analyze {symbol} based on this data:\n{data_context}",
-            max_output_tokens=4000
+            messages=[
+                {"role": "system", "content": AI_TRADING_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Analyze {symbol} based on this data:\n{data_context}"}
+            ],
+            max_tokens=4000
         )
 
-        analysis = response.output_text or ""
+        analysis = response.choices[0].message.content or ""
 
         # Track token usage
-        input_tokens = response.usage.input_tokens if hasattr(response, 'usage') else 0
-        output_tokens = response.usage.output_tokens if hasattr(response, 'usage') else 0
+        input_tokens = response.usage.prompt_tokens if response.usage else 0
+        output_tokens = response.usage.completion_tokens if response.usage else 0
         total_tokens = input_tokens + output_tokens
 
         if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
@@ -2574,6 +2586,7 @@ async def analyze_symbol(
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[AI] Analysis error: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis error: {str(e)}")
 
 
@@ -2599,6 +2612,16 @@ async def chat_with_ai(
         raise HTTPException(status_code=401, detail="Authentication required for AI chat")
 
     user_id = str(current_user.get('sub') or current_user.get('id'))
+
+    # Check if user has AI access enabled
+    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+        from db_postgres import get_user_ai_enabled
+        ai_enabled = await get_user_ai_enabled(user_id)
+        if not ai_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="AI access not enabled for your account. Contact admin to enable AI."
+            )
 
     # Check token limit
     if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
@@ -2646,27 +2669,21 @@ Current {symbol} data:
 
         conversation += f"User: {request.message}"
 
-        # Call OpenAI (GPT-5-mini uses Responses API)
-        response = openai_client.responses.create(
+        # Call OpenAI
+        response = openai_client.chat.completions.create(
             model="gpt-5-mini",
-            instructions=AI_TRADING_SYSTEM_PROMPT + f"\n\n{market_context}",
-            input=conversation,
-            max_output_tokens=2000
+            messages=[
+                {"role": "system", "content": AI_TRADING_SYSTEM_PROMPT + f"\n\n{market_context}"},
+                {"role": "user", "content": conversation}
+            ],
+            max_tokens=2000
         )
 
-        reply = response.output_text or ""
-
-        # If empty, try to extract from output array
-        if not reply and hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for content in item.content:
-                        if hasattr(content, 'text'):
-                            reply += content.text
+        reply = response.choices[0].message.content or ""
 
         # Track token usage
-        input_tokens = response.usage.input_tokens if hasattr(response, 'usage') else 0
-        output_tokens = response.usage.output_tokens if hasattr(response, 'usage') else 0
+        input_tokens = response.usage.prompt_tokens if response.usage else 0
+        output_tokens = response.usage.completion_tokens if response.usage else 0
         total_tokens = input_tokens + output_tokens
 
         if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
@@ -2701,7 +2718,7 @@ async def get_ai_status():
     """Check if AI analysis is available."""
     return {
         "available": OPENAI_AVAILABLE,
-        "model": "gpt-5-mini" if OPENAI_AVAILABLE else None,
+        "model": "o1-mini" if OPENAI_AVAILABLE else None,
         "message": "AI analysis ready" if OPENAI_AVAILABLE else "Set OPENAI_API_KEY to enable"
     }
 

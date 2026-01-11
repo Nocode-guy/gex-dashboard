@@ -28,7 +28,8 @@ from db_postgres import (
     get_user_symbols, add_user_symbol, remove_user_symbol,
     get_user_preferences, save_user_preferences, init_user_defaults,
     get_all_users, get_pending_users, approve_user, delete_user, set_admin,
-    set_password_reset_token, get_user_by_reset_token, update_password
+    set_password_reset_token, get_user_by_reset_token, update_password,
+    set_ai_enabled
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -576,6 +577,23 @@ async def toggle_admin_endpoint(user_id: str, admin: dict = Depends(require_admi
 
     status_text = "granted admin" if new_status else "revoked admin"
     return {"message": f"User {target_user['email']} has been {status_text}"}
+
+
+@admin_router.post("/users/{user_id}/toggle-ai")
+async def toggle_ai_endpoint(user_id: str, admin: dict = Depends(require_admin)):
+    """Toggle AI access for a user"""
+    target_user = await get_user_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_status = not target_user.get('ai_enabled', False)
+    success = await set_ai_enabled(user_id, new_status)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update AI access")
+
+    status_text = "enabled" if new_status else "disabled"
+    return {"message": f"AI access {status_text} for {target_user['email']}", "ai_enabled": new_status}
 
 
 # ============== Initial Setup (One-Time Use) ==============

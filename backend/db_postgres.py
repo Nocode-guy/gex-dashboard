@@ -173,6 +173,7 @@ async def create_tables():
                 email_verification_expires TIMESTAMPTZ,
                 is_approved BOOLEAN DEFAULT FALSE,
                 is_admin BOOLEAN DEFAULT FALSE,
+                ai_enabled BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 last_login TIMESTAMPTZ,
                 failed_login_attempts INTEGER DEFAULT 0,
@@ -181,6 +182,12 @@ async def create_tables():
                 password_reset_expires TIMESTAMPTZ
             )
         """)
+
+        # Add ai_enabled column if it doesn't exist (migration)
+        try:
+            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN DEFAULT FALSE")
+        except Exception:
+            pass  # Column already exists
 
         # User symbols table
         await conn.execute("""
@@ -404,6 +411,7 @@ async def get_user_by_id(user_id: str) -> Optional[dict]:
             async with _pool.acquire() as conn:
                 row = await conn.fetchrow("""
                     SELECT id, email, password_hash, email_verified, is_approved, is_admin,
+                           COALESCE(ai_enabled, FALSE) as ai_enabled,
                            created_at, last_login, failed_login_attempts, locked_until
                     FROM users WHERE id = $1
                 """, to_uuid(user_id))
@@ -566,16 +574,50 @@ async def get_all_users(include_pending: bool = True) -> List[dict]:
     async with _pool.acquire() as conn:
         if include_pending:
             rows = await conn.fetch("""
-                SELECT id, email, email_verified, is_approved, is_admin, created_at, last_login
+                SELECT id, email, email_verified, is_approved, is_admin,
+                       COALESCE(ai_enabled, FALSE) as ai_enabled, created_at, last_login
                 FROM users ORDER BY created_at DESC
             """)
         else:
             rows = await conn.fetch("""
-                SELECT id, email, email_verified, is_approved, is_admin, created_at, last_login
+                SELECT id, email, email_verified, is_approved, is_admin,
+                       COALESCE(ai_enabled, FALSE) as ai_enabled, created_at, last_login
                 FROM users WHERE is_approved = TRUE ORDER BY created_at DESC
             """)
 
         return [dict(row) for row in rows]
+
+
+async def set_ai_enabled(user_id: str, enabled: bool) -> bool:
+    """Enable or disable AI access for a user"""
+    if not _pool:
+        return False
+
+    try:
+        async with _pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE users SET ai_enabled = $2 WHERE id = $1
+            """, to_uuid(user_id), enabled)
+            return True
+    except Exception as e:
+        print(f"[DB] Error in set_ai_enabled: {e}")
+        return False
+
+
+async def get_user_ai_enabled(user_id: str) -> bool:
+    """Check if user has AI access enabled"""
+    if not _pool:
+        return False
+
+    try:
+        async with _pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT COALESCE(ai_enabled, FALSE) as ai_enabled FROM users WHERE id = $1
+            """, to_uuid(user_id))
+            return row['ai_enabled'] if row else False
+    except Exception as e:
+        print(f"[DB] Error in get_user_ai_enabled: {e}")
+        return False
 
 
 async def get_pending_users() -> List[dict]:

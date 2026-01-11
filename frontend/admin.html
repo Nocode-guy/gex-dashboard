@@ -367,6 +367,7 @@
                             <th>Email</th>
                             <th>Status</th>
                             <th>Role</th>
+                            <th>AI Access</th>
                             <th>Last Login</th>
                             <th>Actions</th>
                         </tr>
@@ -543,9 +544,18 @@
                     <td>
                         ${user.is_admin ? '<span class="status-badge admin">Admin</span>' : 'User'}
                     </td>
+                    <td>
+                        ${user.ai_enabled
+                            ? '<span class="status-badge approved">Enabled</span>'
+                            : '<span class="status-badge pending">Disabled</span>'
+                        }
+                    </td>
                     <td>${formatDate(user.last_login)}</td>
                     <td>
                         ${user.is_approved ? `
+                            <button class="action-btn ${user.ai_enabled ? 'reject' : 'approve'}" onclick="toggleAI('${user.id}', ${user.ai_enabled})">
+                                ${user.ai_enabled ? 'Disable AI' : 'Enable AI'}
+                            </button>
                             <button class="action-btn admin-toggle" onclick="toggleAdmin('${user.id}', ${user.is_admin})">
                                 ${user.is_admin ? 'Remove Admin' : 'Make Admin'}
                             </button>
@@ -630,6 +640,28 @@
                 }
             } catch (err) {
                 showToast('Error updating admin status', 'error');
+            }
+        }
+
+        // Toggle AI access for user
+        async function toggleAI(userId, currentStatus) {
+            const action = currentStatus ? 'disable AI access for' : 'enable AI access for';
+            if (!confirm(`Are you sure you want to ${action} this user?`)) {
+                return;
+            }
+
+            try {
+                const res = await apiCall(`/admin/users/${userId}/toggle-ai`, 'POST');
+                if (res && res.ok) {
+                    const data = await res.json();
+                    showToast(data.message || 'AI access updated');
+                    loadUsers();
+                } else {
+                    const data = await res.json();
+                    showToast(data.detail || 'Failed to update AI access', 'error');
+                }
+            } catch (err) {
+                showToast('Error updating AI access', 'error');
             }
         }
 
