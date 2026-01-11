@@ -2624,6 +2624,8 @@ async def chat_with_ai(
     Maintains conversation context in database for follow-up questions.
     Requires authentication. Tracks token usage per user.
     """
+    print(f"[AI Chat] Received request for {request.symbol}: {request.message[:50]}...")
+
     if not OPENAI_AVAILABLE:
         raise HTTPException(
             status_code=503,
@@ -2742,6 +2744,9 @@ Current {symbol} data:
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        print(f"[AI Chat] ERROR: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
 
