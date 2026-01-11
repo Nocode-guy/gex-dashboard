@@ -6968,7 +6968,11 @@ async function getAIAnalysis() {
 
 // Send chat message
 async function sendAIChat(message) {
-    if (aiIsLoading || !message.trim()) return;
+    console.log('[AI Chat] Sending message:', message);
+    if (aiIsLoading || !message.trim()) {
+        console.log('[AI Chat] Blocked - loading or empty');
+        return;
+    }
 
     const aiInput = document.getElementById('aiInput');
     const btnSend = document.getElementById('btnSendAI');
@@ -6980,11 +6984,13 @@ async function sendAIChat(message) {
         accessToken = sessionStorage.getItem('gex_access_token');
     }
     if (!accessToken) {
+        console.log('[AI Chat] No access token');
         if (aiMessages) {
             aiMessages.innerHTML += '<div class="ai-message assistant" style="color: var(--accent-red);">Please log in to use AI chat.</div>';
         }
         return;
     }
+    console.log('[AI Chat] Token present, proceeding...');
 
     // Clear input
     if (aiInput) aiInput.value = '';

@@ -2570,21 +2570,18 @@ async def analyze_symbol(
 - GEX Reliability: {regime.gex_reliability}
 """
 
-        # Call OpenAI
-        response = openai_client.chat.completions.create(
+        # Call OpenAI Responses API
+        response = openai_client.responses.create(
             model="gpt-5-mini",
-            messages=[
-                {"role": "system", "content": AI_TRADING_SYSTEM_PROMPT},
-                {"role": "user", "content": f"Analyze {symbol} based on this data:\n{data_context}"}
-            ],
-            max_completion_tokens=4000
+            instructions=AI_TRADING_SYSTEM_PROMPT,
+            input=f"Analyze {symbol} based on this data:\n{data_context}"
         )
 
-        analysis = response.choices[0].message.content or ""
+        analysis = response.output_text or ""
 
         # Track token usage
-        input_tokens = response.usage.prompt_tokens if response.usage else 0
-        output_tokens = response.usage.completion_tokens if response.usage else 0
+        input_tokens = response.usage.input_tokens if response.usage else 0
+        output_tokens = response.usage.output_tokens if response.usage else 0
         total_tokens = input_tokens + output_tokens
 
         if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
@@ -2703,21 +2700,18 @@ Current {symbol} data:
 
         conversation += f"User: {request.message}"
 
-        # Call OpenAI
-        response = openai_client.chat.completions.create(
+        # Call OpenAI Responses API
+        response = openai_client.responses.create(
             model="gpt-5-mini",
-            messages=[
-                {"role": "system", "content": AI_TRADING_SYSTEM_PROMPT + f"\n\n{market_context}"},
-                {"role": "user", "content": conversation}
-            ],
-            max_completion_tokens=2000
+            instructions=AI_TRADING_SYSTEM_PROMPT + f"\n\n{market_context}",
+            input=conversation
         )
 
-        reply = response.choices[0].message.content or ""
+        reply = response.output_text or ""
 
         # Track token usage
-        input_tokens = response.usage.prompt_tokens if response.usage else 0
-        output_tokens = response.usage.completion_tokens if response.usage else 0
+        input_tokens = response.usage.input_tokens if response.usage else 0
+        output_tokens = response.usage.output_tokens if response.usage else 0
         total_tokens = input_tokens + output_tokens
 
         if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
