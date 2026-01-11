@@ -323,6 +323,10 @@
                 <div class="label">Approved Users</div>
                 <div class="value" id="approvedUsers">-</div>
             </div>
+            <div class="stat-card">
+                <div class="label">AI Tokens This Month</div>
+                <div class="value" id="totalTokens">-</div>
+            </div>
         </div>
 
         <!-- Pending Users Section -->
@@ -369,6 +373,35 @@
                     </thead>
                     <tbody id="allTableBody"></tbody>
                 </table>
+            </div>
+        </section>
+
+        <!-- AI Usage Section -->
+        <section class="section">
+            <div class="section-header">
+                <h2>AI Usage This Month</h2>
+                <select id="usageMonth" onchange="loadUsage()" style="padding: 8px 12px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid rgba(100,100,150,0.3); color: #fff;">
+                </select>
+            </div>
+            <div class="section-content">
+                <div class="loading" id="usageLoading">Loading...</div>
+                <table class="user-table" id="usageTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Tokens Used</th>
+                            <th>Monthly Limit</th>
+                            <th>Usage %</th>
+                            <th>Requests</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usageTableBody"></tbody>
+                </table>
+                <div class="empty-state" id="usageEmpty" style="display: none;">
+                    <div class="icon">📊</div>
+                    <p>No AI usage data for this month</p>
+                </div>
             </div>
         </section>
     </main>
@@ -600,8 +633,116 @@
             }
         }
 
+        // Format number with commas
+        function formatNumber(num) {
+            return num ? num.toLocaleString() : '0';
+        }
+
+        // Initialize month selector
+        function initMonthSelector() {
+            const select = document.getElementById('usageMonth');
+            const now = new Date();
+
+            // Add last 6 months
+            for (let i = 0; i < 6; i++) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                select.innerHTML += `<option value="${value}">${label}</option>`;
+            }
+        }
+
+        // Load AI usage data
+        async function loadUsage() {
+            const month = document.getElementById('usageMonth').value;
+
+            try {
+                const res = await apiCall(`/admin/users/usage?month=${month}`);
+                if (!res || !res.ok) {
+                    console.error('Failed to load usage');
+                    return;
+                }
+
+                const data = await res.json();
+
+                // Update total tokens stat
+                document.getElementById('totalTokens').textContent = formatNumber(data.total_tokens_all_users);
+
+                // Render usage table
+                renderUsageTable(data.users || []);
+
+            } catch (err) {
+                console.error('Error loading usage:', err);
+            }
+        }
+
+        // Render usage table
+        function renderUsageTable(users) {
+            document.getElementById('usageLoading').style.display = 'none';
+
+            if (!users || users.length === 0) {
+                document.getElementById('usageTable').style.display = 'none';
+                document.getElementById('usageEmpty').style.display = 'block';
+                return;
+            }
+
+            document.getElementById('usageTable').style.display = 'table';
+            document.getElementById('usageEmpty').style.display = 'none';
+
+            const tbody = document.getElementById('usageTableBody');
+            tbody.innerHTML = users.map(user => {
+                const usagePercent = user.monthly_limit > 0
+                    ? ((user.total_tokens / user.monthly_limit) * 100).toFixed(1)
+                    : 0;
+                const usageClass = usagePercent > 90 ? 'color: #ff6b6b;' : usagePercent > 70 ? 'color: #ffc107;' : 'color: #50c878;';
+
+                return `
+                    <tr>
+                        <td>${user.email}</td>
+                        <td>${formatNumber(user.total_tokens)}</td>
+                        <td>${formatNumber(user.monthly_limit)}</td>
+                        <td style="${usageClass} font-weight: 600;">${usagePercent}%</td>
+                        <td>${user.request_count || 0}</td>
+                        <td>
+                            <button class="action-btn admin-toggle" onclick="editLimit('${user.user_id}', '${user.email}', ${user.monthly_limit})">
+                                Edit Limit
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Edit user's token limit
+        async function editLimit(userId, email, currentLimit) {
+            const newLimit = prompt(`Set monthly token limit for ${email}:\n\nCurrent: ${formatNumber(currentLimit)} tokens`, currentLimit);
+
+            if (newLimit === null) return;
+
+            const limit = parseInt(newLimit);
+            if (isNaN(limit) || limit < 0) {
+                showToast('Invalid limit value', 'error');
+                return;
+            }
+
+            try {
+                const res = await apiCall(`/admin/users/${userId}/token-limit?limit=${limit}`, 'PUT');
+                if (res && res.ok) {
+                    showToast('Token limit updated');
+                    loadUsage();
+                } else {
+                    const data = await res.json();
+                    showToast(data.detail || 'Failed to update limit', 'error');
+                }
+            } catch (err) {
+                showToast('Error updating limit', 'error');
+            }
+        }
+
         // Initialize
+        initMonthSelector();
         loadUsers();
+        loadUsage();
     </script>
 </body>
 </html>
