@@ -2555,7 +2555,7 @@ async def analyze_symbol(
                 {"role": "system", "content": AI_TRADING_SYSTEM_PROMPT},
                 {"role": "user", "content": f"Analyze {symbol} based on this data:\n{data_context}"}
             ],
-            max_tokens=4000
+            max_completion_tokens=4000
         )
 
         analysis = response.choices[0].message.content or ""
@@ -2678,7 +2678,7 @@ Current {symbol} data:
                 {"role": "system", "content": AI_TRADING_SYSTEM_PROMPT + f"\n\n{market_context}"},
                 {"role": "user", "content": conversation}
             ],
-            max_tokens=2000
+            max_completion_tokens=2000
         )
 
         reply = response.choices[0].message.content or ""
