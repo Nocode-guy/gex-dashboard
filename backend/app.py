@@ -2444,9 +2444,10 @@ async def analyze_symbol(
         raise HTTPException(status_code=401, detail="Authentication required for AI analysis")
 
     user_id = str(current_user.get('sub') or current_user.get('id'))
+    is_admin = current_user.get('is_admin', False)
 
-    # Check if user has AI access enabled
-    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+    # Check if user has AI access enabled (admins bypass this check)
+    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE and not is_admin:
         from db_postgres import get_user_ai_enabled
         ai_enabled = await get_user_ai_enabled(user_id)
         if not ai_enabled:
@@ -2612,9 +2613,10 @@ async def chat_with_ai(
         raise HTTPException(status_code=401, detail="Authentication required for AI chat")
 
     user_id = str(current_user.get('sub') or current_user.get('id'))
+    is_admin = current_user.get('is_admin', False)
 
-    # Check if user has AI access enabled
-    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE:
+    # Check if user has AI access enabled (admins bypass this check)
+    if AI_TRACKING_AVAILABLE and POSTGRES_AVAILABLE and not is_admin:
         from db_postgres import get_user_ai_enabled
         ai_enabled = await get_user_ai_enabled(user_id)
         if not ai_enabled:
