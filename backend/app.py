@@ -3444,18 +3444,6 @@ if os.path.exists(FRONTEND_DIR):
             return FileResponse(guide_path)
         return RedirectResponse(url="/app", status_code=302)
 
-    @app.get("/journal")
-    async def serve_journal(
-        refresh_token: Optional[str] = Cookie(None)
-    ):
-        """Serve the trading journal page (requires authentication in production)."""
-        # Skip auth check on localhost for development
-        pass
-        journal_path = os.path.join(FRONTEND_DIR, "journal.html")
-        if os.path.exists(journal_path):
-            return FileResponse(journal_path)
-        return RedirectResponse(url="/app", status_code=302)
-
     @app.get("/admin")
     async def serve_admin(
         gex_session: Optional[str] = Cookie(None),

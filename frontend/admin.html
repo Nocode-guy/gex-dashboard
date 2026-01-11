@@ -530,7 +530,10 @@
             document.getElementById('allTable').style.display = 'table';
 
             const tbody = document.getElementById('allTableBody');
-            tbody.innerHTML = users.map(user => `
+            tbody.innerHTML = users.map(user => {
+                // Ensure ai_enabled is a proper boolean
+                const aiEnabled = user.ai_enabled === true;
+                return `
                 <tr>
                     <td>${user.email}</td>
                     <td>
@@ -545,7 +548,7 @@
                         ${user.is_admin ? '<span class="status-badge admin">Admin</span>' : 'User'}
                     </td>
                     <td>
-                        ${user.ai_enabled
+                        ${aiEnabled
                             ? '<span class="status-badge approved">Enabled</span>'
                             : '<span class="status-badge pending">Disabled</span>'
                         }
@@ -553,8 +556,8 @@
                     <td>${formatDate(user.last_login)}</td>
                     <td>
                         ${user.is_approved ? `
-                            <button class="action-btn ${user.ai_enabled ? 'reject' : 'approve'}" onclick="toggleAI('${user.id}', ${user.ai_enabled})">
-                                ${user.ai_enabled ? 'Disable AI' : 'Enable AI'}
+                            <button class="action-btn ${aiEnabled ? 'reject' : 'approve'}" onclick="toggleAI('${user.id}')">
+                                ${aiEnabled ? 'Disable AI' : 'Enable AI'}
                             </button>
                             <button class="action-btn admin-toggle" onclick="toggleAdmin('${user.id}', ${user.is_admin})">
                                 ${user.is_admin ? 'Remove Admin' : 'Make Admin'}
@@ -563,7 +566,7 @@
                         <button class="action-btn reject" onclick="deleteUser('${user.id}')">Delete</button>
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
 
         // Approve user
@@ -644,9 +647,8 @@
         }
 
         // Toggle AI access for user
-        async function toggleAI(userId, currentStatus) {
-            const action = currentStatus ? 'disable AI access for' : 'enable AI access for';
-            if (!confirm(`Are you sure you want to ${action} this user?`)) {
+        async function toggleAI(userId) {
+            if (!confirm('Toggle AI access for this user?')) {
                 return;
             }
 
@@ -655,12 +657,13 @@
                 if (res && res.ok) {
                     const data = await res.json();
                     showToast(data.message || 'AI access updated');
-                    loadUsers();
+                    await loadUsers();  // Wait for reload to complete
                 } else {
                     const data = await res.json();
                     showToast(data.detail || 'Failed to update AI access', 'error');
                 }
             } catch (err) {
+                console.error('Toggle AI error:', err);
                 showToast('Error updating AI access', 'error');
             }
         }

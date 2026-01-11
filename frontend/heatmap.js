@@ -6879,6 +6879,35 @@ async function getAIAnalysis() {
     const aiStatus = document.getElementById('aiStatus');
     const aiMessages = document.getElementById('aiMessages');
 
+    // Ensure we have a valid token
+    if (!accessToken) {
+        accessToken = sessionStorage.getItem('gex_access_token');
+    }
+    if (!accessToken) {
+        // Try to refresh token
+        try {
+            const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            if (refreshRes.ok) {
+                const data = await refreshRes.json();
+                accessToken = data.access_token;
+                sessionStorage.setItem('gex_access_token', accessToken);
+            } else {
+                if (aiMessages) {
+                    aiMessages.innerHTML = '<div class="ai-message assistant" style="color: var(--accent-red);">Please log in to use AI analysis.</div>';
+                }
+                return;
+            }
+        } catch (e) {
+            if (aiMessages) {
+                aiMessages.innerHTML = '<div class="ai-message assistant" style="color: var(--accent-red);">Authentication required. Please log in.</div>';
+            }
+            return;
+        }
+    }
+
     aiIsLoading = true;
     if (btnAnalyze) btnAnalyze.disabled = true;
     if (aiStatus) {
@@ -6892,12 +6921,10 @@ async function getAIAnalysis() {
     }
 
     try {
-        const headers = {};
-        if (accessToken) {
-            headers['Authorization'] = `Bearer ${accessToken}`;
-        }
-        const response = await fetch(`/ai/analyze/${currentSymbol}`, {
-            headers,
+        const response = await fetch(`${API_BASE}/ai/analyze/${currentSymbol}`, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            },
             credentials: 'include'
         });
         if (!response.ok) {
@@ -6948,6 +6975,17 @@ async function sendAIChat(message) {
     const aiMessages = document.getElementById('aiMessages');
     const aiStatus = document.getElementById('aiStatus');
 
+    // Ensure we have a valid token
+    if (!accessToken) {
+        accessToken = sessionStorage.getItem('gex_access_token');
+    }
+    if (!accessToken) {
+        if (aiMessages) {
+            aiMessages.innerHTML += '<div class="ai-message assistant" style="color: var(--accent-red);">Please log in to use AI chat.</div>';
+        }
+        return;
+    }
+
     // Clear input
     if (aiInput) aiInput.value = '';
 
@@ -6970,13 +7008,12 @@ async function sendAIChat(message) {
     }
 
     try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (accessToken) {
-            headers['Authorization'] = `Bearer ${accessToken}`;
-        }
-        const response = await fetch('/ai/chat', {
+        const response = await fetch(`${API_BASE}/ai/chat`, {
             method: 'POST',
-            headers,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`
+            },
             credentials: 'include',
             body: JSON.stringify({
                 symbol: currentSymbol,
