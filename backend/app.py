@@ -5,6 +5,13 @@ FastAPI server providing GEX data for the web dashboard and NinjaTrader indicato
 """
 import os
 import sys
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 import asyncio
 import hashlib
 import secrets

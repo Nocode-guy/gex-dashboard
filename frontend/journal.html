@@ -523,9 +523,65 @@
     <script>
         let currentYear = 2026;
         let currentMonth = 1;
+        let accessToken = null;
+
+        // Auth helper - get access token from refresh token
+        async function ensureAuth() {
+            if (accessToken) return true;
+
+            try {
+                const response = await fetch('/auth/refresh', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    accessToken = data.access_token;
+                    return true;
+                }
+            } catch (e) {
+                console.error('Auth refresh failed:', e);
+            }
+
+            // No valid session - redirect to login
+            window.location.href = '/login?redirect=/journal';
+            return false;
+        }
+
+        // Helper for authenticated API calls
+        async function authFetch(url, options = {}) {
+            if (!accessToken) {
+                const authed = await ensureAuth();
+                if (!authed) return null;
+            }
+
+            const headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${accessToken}`
+            };
+
+            const response = await fetch(url, { ...options, headers, credentials: 'include' });
+
+            // If token expired, try refresh once
+            if (response.status === 401) {
+                accessToken = null;
+                const authed = await ensureAuth();
+                if (!authed) return null;
+
+                headers['Authorization'] = `Bearer ${accessToken}`;
+                return fetch(url, { ...options, headers, credentials: 'include' });
+            }
+
+            return response;
+        }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
+            // Ensure authenticated first
+            const authed = await ensureAuth();
+            if (!authed) return;
+
             // Set default entry time to now
             const now = new Date();
             document.getElementById('tradeEntryTime').value = now.toISOString().slice(0, 16);
@@ -542,14 +598,8 @@
             document.getElementById('calendarMonth').textContent = `${monthNames[currentMonth - 1]} ${currentYear}`;
 
             try {
-                const response = await fetch(`/journal/calendar?year=${currentYear}&month=${currentMonth}`, {
-                    credentials: 'include'
-                });
-
-                if (response.status === 401) {
-                    window.location.href = '/login';
-                    return;
-                }
+                const response = await authFetch(`/journal/calendar?year=${currentYear}&month=${currentMonth}`);
+                if (!response) return;
 
                 const data = await response.json();
                 renderCalendar(data.days);
@@ -626,8 +676,8 @@
         // Analytics
         async function loadAnalytics() {
             try {
-                const response = await fetch('/journal/analytics', { credentials: 'include' });
-                if (!response.ok) return;
+                const response = await authFetch('/journal/analytics');
+                if (!response || !response.ok) return;
 
                 const data = await response.json();
 
@@ -653,11 +703,8 @@
             if (status) url += `&status=${status}`;
 
             try {
-                const response = await fetch(url, { credentials: 'include' });
-                if (response.status === 401) {
-                    window.location.href = '/login';
-                    return;
-                }
+                const response = await authFetch(url);
+                if (!response) return;
 
                 const data = await response.json();
                 renderTrades(data.trades);
@@ -730,12 +777,12 @@
             };
 
             try {
-                const response = await fetch('/journal/trades', {
+                const response = await authFetch('/journal/trades', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
                     body: JSON.stringify(trade)
                 });
+                if (!response) return;
 
                 if (!response.ok) {
                     const error = await response.json();
@@ -758,17 +805,16 @@
             if (!exitPrice) return;
 
             try {
-                const response = await fetch(`/journal/trades/${tradeId}`, {
+                const response = await authFetch(`/journal/trades/${tradeId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
                     body: JSON.stringify({
                         exit_price: parseFloat(exitPrice),
                         exit_time: new Date().toISOString()
                     })
                 });
 
-                if (!response.ok) {
+                if (!response || !response.ok) {
                     alert('Error closing trade');
                     return;
                 }
@@ -785,9 +831,8 @@
             if (!confirm('Delete this trade?')) return;
 
             try {
-                await fetch(`/journal/trades/${tradeId}`, {
-                    method: 'DELETE',
-                    credentials: 'include'
+                await authFetch(`/journal/trades/${tradeId}`, {
+                    method: 'DELETE'
                 });
 
                 await loadTrades();
@@ -839,12 +884,12 @@
             }
 
             try {
-                const response = await fetch('/journal/trades/import', {
+                const response = await authFetch('/journal/trades/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
                     body: JSON.stringify({ trades })
                 });
+                if (!response) return;
 
                 const result = await response.json();
                 alert(`Imported ${result.imported} of ${result.total} trades`);
