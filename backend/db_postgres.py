@@ -13,6 +13,13 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 # Connection pool (PostgreSQL)
 _pool: Optional[asyncpg.Pool] = None
 
+
+def to_uuid(user_id: str):
+    """Convert string user_id to UUID for PostgreSQL queries"""
+    if isinstance(user_id, str):
+        return uuid.UUID(user_id)
+    return user_id
+
 # SQLite fallback for AI tracking when PostgreSQL not available
 SQLITE_AI_DB = os.path.join(os.path.dirname(__file__), "ai_tracking.db")
 _sqlite_initialized = False
@@ -393,14 +400,18 @@ async def get_user_by_id(user_id: str) -> Optional[dict]:
     """Get user by ID"""
     # PostgreSQL
     if _pool:
-        async with _pool.acquire() as conn:
-            row = await conn.fetchrow("""
-                SELECT id, email, password_hash, email_verified, is_approved, is_admin,
-                       created_at, last_login, failed_login_attempts, locked_until
-                FROM users WHERE id = $1
-            """, user_id)
-            if row:
-                return dict(row)
+        try:
+            async with _pool.acquire() as conn:
+                row = await conn.fetchrow("""
+                    SELECT id, email, password_hash, email_verified, is_approved, is_admin,
+                           created_at, last_login, failed_login_attempts, locked_until
+                    FROM users WHERE id = $1
+                """, to_uuid(user_id))
+                if row:
+                    return dict(row)
+                return None
+        except Exception as e:
+            print(f"[DB] Error in get_user_by_id: {e}")
             return None
 
     # SQLite fallback
@@ -452,13 +463,17 @@ async def verify_user_email(user_id: str) -> bool:
     """Mark user's email as verified"""
     # PostgreSQL
     if _pool:
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE users
-                SET email_verified = TRUE, email_verification_token = NULL
-                WHERE id = $1
-            """, user_id)
-            return True
+        try:
+            async with _pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE users
+                    SET email_verified = TRUE, email_verification_token = NULL
+                    WHERE id = $1
+                """, to_uuid(user_id))
+                return True
+        except Exception as e:
+            print(f"[DB] Error in verify_user_email: {e}")
+            return False
 
     # SQLite fallback
     try:
@@ -477,13 +492,17 @@ async def update_login_success(user_id: str) -> bool:
     """Update user after successful login"""
     # PostgreSQL
     if _pool:
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE users
-                SET last_login = NOW(), failed_login_attempts = 0, locked_until = NULL
-                WHERE id = $1
-            """, user_id)
-            return True
+        try:
+            async with _pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE users
+                    SET last_login = NOW(), failed_login_attempts = 0, locked_until = NULL
+                    WHERE id = $1
+                """, to_uuid(user_id))
+                return True
+        except Exception as e:
+            print(f"[DB] Error in update_login_success: {e}")
+            return False
 
     # SQLite fallback
     try:
@@ -502,20 +521,24 @@ async def update_login_failure(user_id: str, lock_until: Optional[datetime] = No
     """Update user after failed login"""
     # PostgreSQL
     if _pool:
-        async with _pool.acquire() as conn:
-            if lock_until:
-                await conn.execute("""
-                    UPDATE users
-                    SET failed_login_attempts = failed_login_attempts + 1, locked_until = $2
-                    WHERE id = $1
-                """, user_id, lock_until)
-            else:
-                await conn.execute("""
-                    UPDATE users
-                    SET failed_login_attempts = failed_login_attempts + 1
-                    WHERE id = $1
-                """, user_id)
-            return True
+        try:
+            async with _pool.acquire() as conn:
+                if lock_until:
+                    await conn.execute("""
+                        UPDATE users
+                        SET failed_login_attempts = failed_login_attempts + 1, locked_until = $2
+                        WHERE id = $1
+                    """, to_uuid(user_id), lock_until)
+                else:
+                    await conn.execute("""
+                        UPDATE users
+                        SET failed_login_attempts = failed_login_attempts + 1
+                        WHERE id = $1
+                    """, to_uuid(user_id))
+                return True
+        except Exception as e:
+            print(f"[DB] Error in update_login_failure: {e}")
+            return False
 
     # SQLite fallback
     try:
@@ -575,11 +598,15 @@ async def approve_user(user_id: str) -> bool:
     if not _pool:
         return False
 
-    async with _pool.acquire() as conn:
-        result = await conn.execute("""
-            UPDATE users SET is_approved = TRUE WHERE id = $1
-        """, user_id)
-        return result == "UPDATE 1"
+    try:
+        async with _pool.acquire() as conn:
+            result = await conn.execute("""
+                UPDATE users SET is_approved = TRUE WHERE id = $1
+            """, to_uuid(user_id))
+            return result == "UPDATE 1"
+    except Exception as e:
+        print(f"[DB] Error in approve_user: {e}")
+        return False
 
 
 async def delete_user(user_id: str) -> bool:
@@ -587,9 +614,13 @@ async def delete_user(user_id: str) -> bool:
     if not _pool:
         return False
 
-    async with _pool.acquire() as conn:
-        result = await conn.execute("DELETE FROM users WHERE id = $1", user_id)
-        return result == "DELETE 1"
+    try:
+        async with _pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM users WHERE id = $1", to_uuid(user_id))
+            return result == "DELETE 1"
+    except Exception as e:
+        print(f"[DB] Error in delete_user: {e}")
+        return False
 
 
 async def set_admin(user_id: str, is_admin: bool) -> bool:
@@ -597,11 +628,15 @@ async def set_admin(user_id: str, is_admin: bool) -> bool:
     if not _pool:
         return False
 
-    async with _pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE users SET is_admin = $2 WHERE id = $1
-        """, user_id, is_admin)
-        return True
+    try:
+        async with _pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE users SET is_admin = $2 WHERE id = $1
+            """, to_uuid(user_id), is_admin)
+            return True
+    except Exception as e:
+        print(f"[DB] Error in set_admin: {e}")
+        return False
 
 
 async def set_password_reset_token(email: str, token: str) -> bool:
@@ -656,12 +691,16 @@ async def store_refresh_token(user_id: str, token_hash: str, expires_at: datetim
     """Store a refresh token"""
     # PostgreSQL
     if _pool:
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-                VALUES ($1, $2, $3)
-            """, user_id, token_hash, expires_at)
-            return True
+        try:
+            async with _pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+                    VALUES ($1, $2, $3)
+                """, to_uuid(user_id), token_hash, expires_at)
+                return True
+        except Exception as e:
+            print(f"[DB] Error storing refresh token: {e}")
+            return False
 
     # SQLite fallback
     try:
@@ -746,11 +785,15 @@ async def revoke_all_user_tokens(user_id: str) -> bool:
     """Revoke all refresh tokens for a user"""
     # PostgreSQL
     if _pool:
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1
-            """, user_id)
-            return True
+        try:
+            async with _pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1
+                """, to_uuid(user_id))
+                return True
+        except Exception as e:
+            print(f"[DB] Error in revoke_all_user_tokens: {e}")
+            return False
 
     # SQLite fallback
     try:
@@ -793,12 +836,16 @@ async def get_user_symbols(user_id: str) -> List[str]:
     if not _pool:
         return []
 
-    async with _pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT symbol FROM user_symbols
-            WHERE user_id = $1 ORDER BY display_order, added_at
-        """, user_id)
-        return [row['symbol'] for row in rows]
+    try:
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT symbol FROM user_symbols
+                WHERE user_id = $1 ORDER BY display_order, added_at
+            """, to_uuid(user_id))
+            return [row['symbol'] for row in rows]
+    except Exception as e:
+        print(f"[DB] Error in get_user_symbols: {e}")
+        return []
 
 
 async def add_user_symbol(user_id: str, symbol: str) -> bool:
@@ -807,17 +854,18 @@ async def add_user_symbol(user_id: str, symbol: str) -> bool:
         return False
 
     try:
+        user_uuid = to_uuid(user_id)
         async with _pool.acquire() as conn:
             # Get max display order
             max_order = await conn.fetchval("""
                 SELECT COALESCE(MAX(display_order), 0) + 1 FROM user_symbols WHERE user_id = $1
-            """, user_id)
+            """, user_uuid)
 
             await conn.execute("""
                 INSERT INTO user_symbols (user_id, symbol, display_order)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (user_id, symbol) DO NOTHING
-            """, user_id, symbol.upper(), max_order)
+            """, user_uuid, symbol.upper(), max_order)
             return True
     except Exception as e:
         print(f"[DB] Error adding symbol: {e}")
@@ -829,11 +877,15 @@ async def remove_user_symbol(user_id: str, symbol: str) -> bool:
     if not _pool:
         return False
 
-    async with _pool.acquire() as conn:
-        result = await conn.execute("""
-            DELETE FROM user_symbols WHERE user_id = $1 AND symbol = $2
-        """, user_id, symbol.upper())
-        return result == "DELETE 1"
+    try:
+        async with _pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM user_symbols WHERE user_id = $1 AND symbol = $2
+            """, to_uuid(user_id), symbol.upper())
+            return result == "DELETE 1"
+    except Exception as e:
+        print(f"[DB] Error in remove_user_symbol: {e}")
+        return False
 
 
 async def reorder_user_symbols(user_id: str, symbols: List[str]) -> bool:
@@ -841,13 +893,18 @@ async def reorder_user_symbols(user_id: str, symbols: List[str]) -> bool:
     if not _pool:
         return False
 
-    async with _pool.acquire() as conn:
-        for i, symbol in enumerate(symbols):
-            await conn.execute("""
-                UPDATE user_symbols SET display_order = $3
-                WHERE user_id = $1 AND symbol = $2
-            """, user_id, symbol.upper(), i)
-        return True
+    try:
+        user_uuid = to_uuid(user_id)
+        async with _pool.acquire() as conn:
+            for i, symbol in enumerate(symbols):
+                await conn.execute("""
+                    UPDATE user_symbols SET display_order = $3
+                    WHERE user_id = $1 AND symbol = $2
+                """, user_uuid, symbol.upper(), i)
+            return True
+    except Exception as e:
+        print(f"[DB] Error in reorder_user_symbols: {e}")
+        return False
 
 
 # ============== User Preferences Operations ==============
@@ -857,20 +914,24 @@ async def get_user_preferences(user_id: str) -> Optional[dict]:
     if not _pool:
         return None
 
-    async with _pool.acquire() as conn:
-        row = await conn.fetchrow("""
-            SELECT theme, current_symbol, refresh_interval, current_view,
-                   expiration_mode, view_mode, trinity_symbols, trend_filter
-            FROM user_preferences WHERE user_id = $1
-        """, user_id)
+    try:
+        async with _pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT theme, current_symbol, refresh_interval, current_view,
+                       expiration_mode, view_mode, trinity_symbols, trend_filter
+                FROM user_preferences WHERE user_id = $1
+            """, to_uuid(user_id))
 
-        if row:
-            result = dict(row)
-            # Parse JSON fields
-            if result.get('trinity_symbols'):
-                import json
-                result['trinity_symbols'] = json.loads(result['trinity_symbols'])
-            return result
+            if row:
+                result = dict(row)
+                # Parse JSON fields
+                if result.get('trinity_symbols'):
+                    import json
+                    result['trinity_symbols'] = json.loads(result['trinity_symbols'])
+                return result
+            return None
+    except Exception as e:
+        print(f"[DB] Error in get_user_preferences: {e}")
         return None
 
 
@@ -881,36 +942,40 @@ async def save_user_preferences(user_id: str, preferences: dict) -> bool:
 
     import json
 
-    async with _pool.acquire() as conn:
-        trinity = json.dumps(preferences.get('trinity_symbols', ["SPY", "QQQ", "IWM"]))
+    try:
+        async with _pool.acquire() as conn:
+            trinity = json.dumps(preferences.get('trinity_symbols', ["SPY", "QQQ", "IWM"]))
 
-        await conn.execute("""
-            INSERT INTO user_preferences (
-                user_id, theme, current_symbol, refresh_interval, current_view,
-                expiration_mode, view_mode, trinity_symbols, trend_filter, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-            ON CONFLICT (user_id) DO UPDATE SET
-                theme = EXCLUDED.theme,
-                current_symbol = EXCLUDED.current_symbol,
-                refresh_interval = EXCLUDED.refresh_interval,
-                current_view = EXCLUDED.current_view,
-                expiration_mode = EXCLUDED.expiration_mode,
-                view_mode = EXCLUDED.view_mode,
-                trinity_symbols = EXCLUDED.trinity_symbols,
-                trend_filter = EXCLUDED.trend_filter,
-                updated_at = NOW()
-        """,
-            user_id,
-            preferences.get('theme', 'dark'),
-            preferences.get('current_symbol', 'SPX'),
-            preferences.get('refresh_interval', 1),
-            preferences.get('current_view', 'gex'),
-            preferences.get('expiration_mode', 'all'),
-            preferences.get('view_mode', 'single'),
-            trinity,
-            preferences.get('trend_filter', 'all')
-        )
-        return True
+            await conn.execute("""
+                INSERT INTO user_preferences (
+                    user_id, theme, current_symbol, refresh_interval, current_view,
+                    expiration_mode, view_mode, trinity_symbols, trend_filter, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+                ON CONFLICT (user_id) DO UPDATE SET
+                    theme = EXCLUDED.theme,
+                    current_symbol = EXCLUDED.current_symbol,
+                    refresh_interval = EXCLUDED.refresh_interval,
+                    current_view = EXCLUDED.current_view,
+                    expiration_mode = EXCLUDED.expiration_mode,
+                    view_mode = EXCLUDED.view_mode,
+                    trinity_symbols = EXCLUDED.trinity_symbols,
+                    trend_filter = EXCLUDED.trend_filter,
+                    updated_at = NOW()
+            """,
+                to_uuid(user_id),
+                preferences.get('theme', 'dark'),
+                preferences.get('current_symbol', 'SPX'),
+                preferences.get('refresh_interval', 1),
+                preferences.get('current_view', 'gex'),
+                preferences.get('expiration_mode', 'all'),
+                preferences.get('view_mode', 'single'),
+                trinity,
+                preferences.get('trend_filter', 'all')
+            )
+            return True
+    except Exception as e:
+        print(f"[DB] Error in save_user_preferences: {e}")
+        return False
 
 
 async def init_user_defaults(user_id: str, default_symbols: List[str] = None) -> bool:
@@ -1197,12 +1262,16 @@ async def save_chat_message(
 ) -> bool:
     """Save a chat message to history"""
     if _pool:
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO ai_chat_history (user_id, symbol, role, content, tokens_used)
-                VALUES ($1, $2, $3, $4, $5)
-            """, user_id, symbol.upper(), role, content, tokens_used)
-            return True
+        try:
+            async with _pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO ai_chat_history (user_id, symbol, role, content, tokens_used)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, to_uuid(user_id), symbol.upper(), role, content, tokens_used)
+                return True
+        except Exception as e:
+            print(f"[DB] Error in save_chat_message: {e}")
+            return False
     else:
         # SQLite fallback
         try:
@@ -1221,24 +1290,28 @@ async def save_chat_message(
 async def get_chat_history(user_id: str, symbol: str = None, limit: int = 20) -> List[dict]:
     """Get recent chat history for a user/symbol"""
     if _pool:
-        async with _pool.acquire() as conn:
-            if symbol:
-                rows = await conn.fetch("""
-                    SELECT role, content, tokens_used, created_at
-                    FROM ai_chat_history
-                    WHERE user_id = $1 AND symbol = $2
-                    ORDER BY created_at DESC
-                    LIMIT $3
-                """, user_id, symbol.upper(), limit)
-            else:
-                rows = await conn.fetch("""
-                    SELECT role, content, tokens_used, created_at, symbol
-                    FROM ai_chat_history
-                    WHERE user_id = $1
-                    ORDER BY created_at DESC
-                    LIMIT $2
-                """, user_id, limit)
-            return [dict(row) for row in reversed(rows)]
+        try:
+            async with _pool.acquire() as conn:
+                if symbol:
+                    rows = await conn.fetch("""
+                        SELECT role, content, tokens_used, created_at
+                        FROM ai_chat_history
+                        WHERE user_id = $1 AND symbol = $2
+                        ORDER BY created_at DESC
+                        LIMIT $3
+                    """, to_uuid(user_id), symbol.upper(), limit)
+                else:
+                    rows = await conn.fetch("""
+                        SELECT role, content, tokens_used, created_at, symbol
+                        FROM ai_chat_history
+                        WHERE user_id = $1
+                        ORDER BY created_at DESC
+                        LIMIT $2
+                    """, to_uuid(user_id), limit)
+                return [dict(row) for row in reversed(rows)]
+        except Exception as e:
+            print(f"[DB] Error in get_chat_history: {e}")
+            return []
     else:
         # SQLite fallback
         try:
@@ -1270,15 +1343,19 @@ async def get_chat_history(user_id: str, symbol: str = None, limit: int = 20) ->
 async def get_all_user_chats(user_id: str, limit: int = 100) -> List[dict]:
     """Get all recent chats for a user across all symbols"""
     if _pool:
-        async with _pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT symbol, role, content, tokens_used, created_at
-                FROM ai_chat_history
-                WHERE user_id = $1
-                ORDER BY created_at DESC
-                LIMIT $2
-            """, user_id, limit)
-            return [dict(row) for row in rows]
+        try:
+            async with _pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT symbol, role, content, tokens_used, created_at
+                    FROM ai_chat_history
+                    WHERE user_id = $1
+                    ORDER BY created_at DESC
+                    LIMIT $2
+                """, to_uuid(user_id), limit)
+                return [dict(row) for row in rows]
+        except Exception as e:
+            print(f"[DB] Error in get_all_user_chats: {e}")
+            return []
     else:
         # SQLite fallback
         try:
@@ -1330,16 +1407,20 @@ async def cleanup_old_chats(days: int = 7) -> int:
 async def clear_user_chat_history(user_id: str, symbol: str = None) -> int:
     """Clear chat history for a user (optionally for specific symbol)"""
     if _pool:
-        async with _pool.acquire() as conn:
-            if symbol:
-                result = await conn.execute("""
-                    DELETE FROM ai_chat_history WHERE user_id = $1 AND symbol = $2
-                """, user_id, symbol.upper())
-            else:
-                result = await conn.execute("""
-                    DELETE FROM ai_chat_history WHERE user_id = $1
-                """, user_id)
-            return int(result.split()[1]) if result else 0
+        try:
+            async with _pool.acquire() as conn:
+                if symbol:
+                    result = await conn.execute("""
+                        DELETE FROM ai_chat_history WHERE user_id = $1 AND symbol = $2
+                    """, to_uuid(user_id), symbol.upper())
+                else:
+                    result = await conn.execute("""
+                        DELETE FROM ai_chat_history WHERE user_id = $1
+                    """, to_uuid(user_id))
+                return int(result.split()[1]) if result else 0
+        except Exception as e:
+            print(f"[DB] Error in clear_user_chat_history: {e}")
+            return 0
     else:
         # SQLite fallback
         try:
@@ -1366,23 +1447,28 @@ async def get_user_token_limit(user_id: str) -> dict:
     default = {"monthly_token_limit": 500000, "tokens_used_this_month": 0, "month_start": datetime.now().strftime("%Y-%m-%d")}
 
     if _pool:
-        async with _pool.acquire() as conn:
-            row = await conn.fetchrow("""
-                SELECT monthly_token_limit, tokens_used_this_month, month_start, updated_at
-                FROM user_token_limits
-                WHERE user_id = $1
-            """, user_id)
+        try:
+            user_uuid = to_uuid(user_id)
+            async with _pool.acquire() as conn:
+                row = await conn.fetchrow("""
+                    SELECT monthly_token_limit, tokens_used_this_month, month_start, updated_at
+                    FROM user_token_limits
+                    WHERE user_id = $1
+                """, user_uuid)
 
-            if row:
-                return dict(row)
+                if row:
+                    return dict(row)
 
-            # Create default entry if not exists
-            await conn.execute("""
-                INSERT INTO user_token_limits (user_id)
-                VALUES ($1)
-                ON CONFLICT (user_id) DO NOTHING
-            """, user_id)
+                # Create default entry if not exists
+                await conn.execute("""
+                    INSERT INTO user_token_limits (user_id)
+                    VALUES ($1)
+                    ON CONFLICT (user_id) DO NOTHING
+                """, user_uuid)
 
+                return default
+        except Exception as e:
+            print(f"[DB] Error in get_user_token_limit: {e}")
             return default
     else:
         # SQLite fallback
@@ -1412,15 +1498,19 @@ async def get_user_token_limit(user_id: str) -> dict:
 async def update_user_token_usage(user_id: str, tokens: int) -> bool:
     """Add tokens to user's monthly usage"""
     if _pool:
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO user_token_limits (user_id, tokens_used_this_month, updated_at)
-                VALUES ($1, $2, NOW())
-                ON CONFLICT (user_id) DO UPDATE SET
-                    tokens_used_this_month = user_token_limits.tokens_used_this_month + $2,
-                    updated_at = NOW()
-            """, user_id, tokens)
-            return True
+        try:
+            async with _pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO user_token_limits (user_id, tokens_used_this_month, updated_at)
+                    VALUES ($1, $2, NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        tokens_used_this_month = user_token_limits.tokens_used_this_month + $2,
+                        updated_at = NOW()
+                """, to_uuid(user_id), tokens)
+                return True
+        except Exception as e:
+            print(f"[DB] Error in update_user_token_usage: {e}")
+            return False
     else:
         # SQLite fallback
         try:
@@ -1448,15 +1538,19 @@ async def update_user_token_usage(user_id: str, tokens: int) -> bool:
 async def set_user_token_limit(user_id: str, limit: int) -> dict:
     """Set a user's monthly token limit (admin function)"""
     if _pool:
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO user_token_limits (user_id, monthly_token_limit, updated_at)
-                VALUES ($1, $2, NOW())
-                ON CONFLICT (user_id) DO UPDATE SET
-                    monthly_token_limit = $2,
-                    updated_at = NOW()
-            """, user_id, limit)
-            return {"success": True}
+        try:
+            async with _pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO user_token_limits (user_id, monthly_token_limit, updated_at)
+                    VALUES ($1, $2, NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        monthly_token_limit = $2,
+                        updated_at = NOW()
+                """, to_uuid(user_id), limit)
+                return {"success": True}
+        except Exception as e:
+            print(f"[DB] Error in set_user_token_limit: {e}")
+            return {"success": False, "error": str(e)}
     else:
         # SQLite fallback
         try:
@@ -1533,12 +1627,16 @@ async def log_ai_usage(
     total_tokens = input_tokens + output_tokens
 
     if _pool:
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO ai_usage_log (user_id, endpoint, symbol, input_tokens, output_tokens, total_tokens)
-                VALUES ($1, $2, $3, $4, $5, $6)
-            """, user_id, endpoint, symbol.upper(), input_tokens, output_tokens, total_tokens)
-            return True
+        try:
+            async with _pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO ai_usage_log (user_id, endpoint, symbol, input_tokens, output_tokens, total_tokens)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                """, to_uuid(user_id), endpoint, symbol.upper(), input_tokens, output_tokens, total_tokens)
+                return True
+        except Exception as e:
+            print(f"[DB] Error in log_ai_usage: {e}")
+            return False
     else:
         # SQLite fallback
         try:
@@ -1604,60 +1702,65 @@ async def get_user_usage_report(user_id: str, start_date: str = None, end_date: 
             print(f"[DB SQLite] get_user_usage_report error: {e}")
             return {}
 
-    async with _pool.acquire() as conn:
-        # Get aggregated usage
-        row = await conn.fetchrow("""
-            SELECT
-                COUNT(*) as request_count,
-                COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-                COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-                COALESCE(SUM(total_tokens), 0) as total_tokens
-            FROM ai_usage_log
-            WHERE user_id = $1 AND created_at >= $2 AND created_at <= $3
-        """, user_id, start_dt, end_dt)
+    try:
+        user_uuid = to_uuid(user_id)
+        async with _pool.acquire() as conn:
+            # Get aggregated usage
+            row = await conn.fetchrow("""
+                SELECT
+                    COUNT(*) as request_count,
+                    COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                    COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+                    COALESCE(SUM(total_tokens), 0) as total_tokens
+                FROM ai_usage_log
+                WHERE user_id = $1 AND created_at >= $2 AND created_at <= $3
+            """, user_uuid, start_dt, end_dt)
 
-        # Get usage by endpoint
-        endpoint_rows = await conn.fetch("""
-            SELECT
-                endpoint,
-                COUNT(*) as request_count,
-                COALESCE(SUM(total_tokens), 0) as total_tokens
-            FROM ai_usage_log
-            WHERE user_id = $1 AND created_at >= $2 AND created_at <= $3
-            GROUP BY endpoint
-        """, user_id, start_dt, end_dt)
+            # Get usage by endpoint
+            endpoint_rows = await conn.fetch("""
+                SELECT
+                    endpoint,
+                    COUNT(*) as request_count,
+                    COALESCE(SUM(total_tokens), 0) as total_tokens
+                FROM ai_usage_log
+                WHERE user_id = $1 AND created_at >= $2 AND created_at <= $3
+                GROUP BY endpoint
+            """, user_uuid, start_dt, end_dt)
 
-        # Get usage by symbol (top 10)
-        symbol_rows = await conn.fetch("""
-            SELECT
-                symbol,
-                COUNT(*) as request_count,
-                COALESCE(SUM(total_tokens), 0) as total_tokens
-            FROM ai_usage_log
-            WHERE user_id = $1 AND created_at >= $2 AND created_at <= $3
-            GROUP BY symbol
-            ORDER BY total_tokens DESC
-            LIMIT 10
-        """, user_id, start_dt, end_dt)
+            # Get usage by symbol (top 10)
+            symbol_rows = await conn.fetch("""
+                SELECT
+                    symbol,
+                    COUNT(*) as request_count,
+                    COALESCE(SUM(total_tokens), 0) as total_tokens
+                FROM ai_usage_log
+                WHERE user_id = $1 AND created_at >= $2 AND created_at <= $3
+                GROUP BY symbol
+                ORDER BY total_tokens DESC
+                LIMIT 10
+            """, user_uuid, start_dt, end_dt)
 
-        # Get token limit info
-        limit_info = await get_user_token_limit(user_id)
+            # Get token limit info
+            limit_info = await get_user_token_limit(user_id)
 
-        return {
-            "user_id": str(user_id),
-            "period": {
-                "start": start_dt.isoformat(),
-                "end": end_dt.isoformat()
-            },
-            "totals": dict(row) if row else {},
-            "by_endpoint": [dict(r) for r in endpoint_rows],
-            "by_symbol": [dict(r) for r in symbol_rows],
-            "limits": {
-                "monthly_limit": limit_info['monthly_token_limit'],
-                "used_this_month": limit_info['tokens_used_this_month'],
-                "remaining": limit_info['monthly_token_limit'] - limit_info['tokens_used_this_month']
+            return {
+                "user_id": str(user_id),
+                "period": {
+                    "start": start_dt.isoformat(),
+                    "end": end_dt.isoformat()
+                },
+                "totals": dict(row) if row else {},
+                "by_endpoint": [dict(r) for r in endpoint_rows],
+                "by_symbol": [dict(r) for r in symbol_rows],
+                "limits": {
+                    "monthly_limit": limit_info['monthly_token_limit'],
+                    "used_this_month": limit_info['tokens_used_this_month'],
+                    "remaining": limit_info['monthly_token_limit'] - limit_info['tokens_used_this_month']
+                }
             }
-        }
+    except Exception as e:
+        print(f"[DB] Error in get_user_usage_report: {e}")
+        return {}
 
 
 async def get_all_users_usage_report(month: str = None) -> dict:
