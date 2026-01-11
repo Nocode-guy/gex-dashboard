@@ -186,8 +186,9 @@ async def create_tables():
         # Add ai_enabled column if it doesn't exist (migration)
         try:
             await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN DEFAULT FALSE")
-        except Exception:
-            pass  # Column already exists
+            print("[DB] ai_enabled column migration complete")
+        except Exception as e:
+            print(f"[DB] ai_enabled migration note: {e}")
 
         # User symbols table
         await conn.execute("""
@@ -591,13 +592,25 @@ async def get_all_users(include_pending: bool = True) -> List[dict]:
 async def set_ai_enabled(user_id: str, enabled: bool) -> bool:
     """Enable or disable AI access for a user"""
     if not _pool:
+        print("[DB] set_ai_enabled: No database pool")
         return False
 
     try:
         async with _pool.acquire() as conn:
-            await conn.execute("""
+            # Check if column exists first
+            col_check = await conn.fetchval("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'ai_enabled'
+            """)
+            if not col_check:
+                # Column doesn't exist, add it
+                await conn.execute("ALTER TABLE users ADD COLUMN ai_enabled BOOLEAN DEFAULT FALSE")
+                print("[DB] Added ai_enabled column")
+
+            result = await conn.execute("""
                 UPDATE users SET ai_enabled = $2 WHERE id = $1
             """, to_uuid(user_id), enabled)
+            print(f"[DB] set_ai_enabled({user_id}, {enabled}): {result}")
             return True
     except Exception as e:
         print(f"[DB] Error in set_ai_enabled: {e}")
